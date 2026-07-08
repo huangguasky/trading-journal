@@ -1,0 +1,11 @@
+{
+  "name": "trading-journal",
+  "version": "0.2.0",
+  "private": true,
+  "scripts": {
+    "desktop:dev": "npm --prefix desktop run tauri:dev",
+    "desktop:build": "npm --prefix desktop run tauri:build",
+    "engine": "python -m engine.app"
+  }
+}
+

@@ -1,0 +1,22 @@
+key: quality_growth
+name: Quality Growth
+description: Prefer stable trends with moderate volatility and avoid crowded overheat.
+tags: [quality, growth]
+risk_bias: balanced
+rules:
+  - metric: trend.above_ma120
+    op: truthy
+    value: true
+    weight: 14
+    evidence: Long-term trend is constructive.
+  - metric: levels.atr_pct
+    op: "<="
+    value: 4.5
+    weight: 12
+    evidence: Volatility remains manageable.
+  - metric: momentum.rsi14
+    op: "<="
+    value: 72
+    weight: 8
+    evidence: Momentum is below extreme overheat.
+

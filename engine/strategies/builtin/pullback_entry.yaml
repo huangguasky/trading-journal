@@ -1,0 +1,23 @@
+key: pullback_entry
+name: Pullback Entry
+description: Look for a controlled pullback inside a still-healthy medium-term trend.
+tags: [pullback, timing]
+risk_bias: balanced
+rules:
+  - metric: trend.above_ma60
+    op: truthy
+    value: true
+    weight: 18
+    evidence: Medium-term trend is still constructive.
+  - metric: levels.distance_to_support_pct
+    op: "<="
+    value: 4
+    weight: 18
+    evidence: Price is close to 20-day support.
+    risk: Support break requires discipline.
+  - metric: momentum.rsi14
+    op: "<="
+    value: 58
+    weight: 10
+    evidence: Momentum is not overheated.
+

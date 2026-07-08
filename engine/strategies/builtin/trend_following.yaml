@@ -1,0 +1,24 @@
+key: trend_following
+name: Trend Following
+description: Follow established trend when price, moving averages and momentum align.
+tags: [trend, momentum]
+risk_bias: balanced
+rules:
+  - metric: trend.above_ma20
+    op: truthy
+    value: true
+    weight: 14
+    evidence: Price is above MA20.
+    risk: MA20 breakdown invalidates short-term trend.
+  - metric: trend.above_ma60
+    op: truthy
+    value: true
+    weight: 16
+    evidence: Price is above MA60.
+    risk: Medium-term trend has not confirmed.
+  - metric: momentum.macd_hist
+    op: ">"
+    value: 0
+    weight: 12
+    evidence: MACD histogram is positive.
+

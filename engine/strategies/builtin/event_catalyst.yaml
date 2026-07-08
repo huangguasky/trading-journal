@@ -1,0 +1,22 @@
+key: event_catalyst
+name: Event Catalyst
+description: Use news and event density as a catalyst filter, while respecting price confirmation.
+tags: [event, news]
+risk_bias: aggressive
+rules:
+  - metric: news_count
+    op: ">="
+    value: 1
+    weight: 12
+    evidence: Recent event flow exists.
+  - metric: trend.above_ma20
+    op: truthy
+    value: true
+    weight: 10
+    evidence: Price confirms event interpretation.
+  - metric: volume.volume_ratio_5_20
+    op: ">="
+    value: 1
+    weight: 8
+    evidence: Volume supports event attention.
+

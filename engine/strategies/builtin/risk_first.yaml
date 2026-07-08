@@ -1,0 +1,23 @@
+key: risk_first
+name: Risk First
+description: Defensive lens focused on volatility, support distance and position sizing.
+tags: [risk, defensive]
+risk_bias: defensive
+rules:
+  - metric: levels.atr_pct
+    op: "<="
+    value: 5
+    weight: 16
+    evidence: ATR risk is within normal range.
+    risk: ATR is elevated; reduce position size.
+  - metric: levels.distance_to_support_pct
+    op: "<="
+    value: 6
+    weight: 10
+    evidence: Stop distance is not too wide.
+  - metric: chips.profit_position_pct
+    op: "<="
+    value: 85
+    weight: 8
+    evidence: Profit distribution is not extremely crowded.
+
