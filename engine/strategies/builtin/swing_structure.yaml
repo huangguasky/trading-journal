@@ -1,0 +1,27 @@
+key: swing_structure
+name: 波段结构
+description: 适合中短线波段交易，综合趋势方向、压力空间与波动风险。
+tags: [swing, structure, trend]
+risk_bias: balanced
+rules:
+  - metric: trend.above_ma60
+    op: truthy
+    value: true
+    weight: 12
+    evidence: 中期趋势向上，波段交易顺势概率更高。
+  - metric: levels.distance_to_resistance_pct
+    op: ">="
+    value: 4
+    weight: 10
+    evidence: 距离压力位仍有一定空间。
+  - metric: levels.atr_pct
+    op: "<="
+    value: 5
+    weight: 10
+    evidence: 波动率可控，适合执行波段计划。
+  - metric: momentum.rsi14
+    op: ">="
+    value: 45
+    weight: 8
+    evidence: 动量未处于弱势区间。
+

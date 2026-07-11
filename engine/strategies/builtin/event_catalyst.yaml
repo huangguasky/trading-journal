@@ -1,6 +1,6 @@
 key: event_catalyst
-name: Event Catalyst
-description: Use news and event density as a catalyst filter, while respecting price confirmation.
+name: 事件催化
+description: 结合新闻与事件密度判断催化强度，同时尊重价格确认。
 tags: [event, news]
 risk_bias: aggressive
 rules:
@@ -8,15 +8,14 @@ rules:
     op: ">="
     value: 1
     weight: 12
-    evidence: Recent event flow exists.
+    evidence: 近期存在事件或消息流。
   - metric: trend.above_ma20
     op: truthy
     value: true
     weight: 10
-    evidence: Price confirms event interpretation.
+    evidence: 价格走势对事件解读形成确认。
   - metric: volume.volume_ratio_5_20
     op: ">="
     value: 1
     weight: 8
-    evidence: Volume supports event attention.
-
+    evidence: 成交量支持市场关注度提升。

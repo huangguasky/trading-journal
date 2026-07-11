@@ -1,6 +1,6 @@
 key: trend_following
-name: Trend Following
-description: Follow established trend when price, moving averages and momentum align.
+name: 趋势跟随
+description: 当价格、均线与动量同向时，优先跟随已形成的趋势。
 tags: [trend, momentum]
 risk_bias: balanced
 rules:
@@ -8,17 +8,16 @@ rules:
     op: truthy
     value: true
     weight: 14
-    evidence: Price is above MA20.
-    risk: MA20 breakdown invalidates short-term trend.
+    evidence: 价格站上 MA20，短线趋势结构较好。
+    risk: 跌破 MA20 将削弱短线趋势假设。
   - metric: trend.above_ma60
     op: truthy
     value: true
     weight: 16
-    evidence: Price is above MA60.
-    risk: Medium-term trend has not confirmed.
+    evidence: 价格站上 MA60，中期趋势有支撑。
+    risk: 中期趋势尚未完全确认。
   - metric: momentum.macd_hist
     op: ">"
     value: 0
     weight: 12
-    evidence: MACD histogram is positive.
-
+    evidence: MACD 柱体为正，动量仍有配合。

@@ -1,0 +1,27 @@
+key: candle_squeeze
+name: 形态压缩
+description: 用波动率、支撑压力距离和量能判断是否进入蓄势后的方向选择阶段。
+tags: [pattern, squeeze, breakout]
+risk_bias: balanced
+rules:
+  - metric: levels.atr_pct
+    op: "<="
+    value: 4
+    weight: 12
+    evidence: ATR 收敛，价格波动进入压缩状态。
+  - metric: levels.distance_to_resistance_pct
+    op: "<="
+    value: 5
+    weight: 10
+    evidence: 距离压力位不远，向上选择方向时容易被确认。
+  - metric: levels.distance_to_support_pct
+    op: "<="
+    value: 7
+    weight: 8
+    evidence: 支撑距离可控，形态交易有风控锚点。
+  - metric: volume.volume_ratio_5_20
+    op: ">="
+    value: 0.75
+    weight: 6
+    evidence: 压缩阶段量能仍保持基本活跃。
+

@@ -1,0 +1,27 @@
+key: sentiment_repair
+name: 情绪修复
+description: 观察下跌或分歧后的情绪降温与资金回流，适合从过冷走向修复的标的。
+tags: [sentiment, repair, timing]
+risk_bias: balanced
+rules:
+  - metric: momentum.rsi14
+    op: "<="
+    value: 48
+    weight: 12
+    evidence: RSI 偏低，情绪已有降温迹象。
+  - metric: levels.distance_to_support_pct
+    op: "<="
+    value: 6
+    weight: 12
+    evidence: 价格靠近支撑，修复交易具备锚点。
+  - metric: volume.volume_ratio_5_20
+    op: ">="
+    value: 0.85
+    weight: 8
+    evidence: 量能没有明显枯竭，仍有资金参与。
+  - metric: momentum.macd_hist
+    op: ">="
+    value: -1
+    weight: 6
+    evidence: MACD 未继续大幅恶化，修复条件改善。
+

@@ -1,0 +1,28 @@
+key: range_rotation
+name: 箱体轮动
+description: 适用于趋势不强但支撑压力清晰的震荡区间，强调低吸高抛和纪律止损。
+tags: [range, rotation, timing]
+risk_bias: balanced
+rules:
+  - metric: levels.distance_to_support_pct
+    op: "<="
+    value: 7
+    weight: 14
+    evidence: 价格距离支撑不远，箱体下沿具备观察意义。
+    risk: 箱体跌破后不应继续按震荡策略处理。
+  - metric: levels.distance_to_resistance_pct
+    op: ">="
+    value: 4
+    weight: 10
+    evidence: 距离压力位仍有空间，风险收益比尚可。
+  - metric: momentum.rsi14
+    op: "<="
+    value: 62
+    weight: 8
+    evidence: 动量没有明显过热，适合等待区间内节奏。
+  - metric: levels.atr_pct
+    op: "<="
+    value: 5.5
+    weight: 8
+    evidence: 区间波动仍处于可管理范围。
+

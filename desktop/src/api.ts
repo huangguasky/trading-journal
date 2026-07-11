@@ -24,8 +24,10 @@ export type StockReport = {
   rating: string;
   action: string;
   quote: { price: number; currency: string; change_pct: number; source: string };
+  data_quality?: Record<string, any>;
   risk_flags: string[];
   operation_plan: { entry: string; stop: number; target: number; position: string };
+  selected_strategies?: Array<{ key: string; name: string; score: number; stance: string; evidence: string[]; risks: string[] }>;
   strategies: Array<{ key: string; name: string; score: number; stance: string; evidence: string[]; risks: string[] }>;
   markdown: string;
 };
@@ -40,6 +42,6 @@ export type MarketReport = {
   risk_flags: string[];
   tomorrow_watch: string[];
   strategy_bias: string;
+  data_quality?: Record<string, any>;
   markdown: string;
 };
-

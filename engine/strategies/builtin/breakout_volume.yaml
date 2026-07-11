@@ -1,6 +1,6 @@
 key: breakout_volume
-name: Volume Breakout
-description: Favor setups near resistance with expanding turnover.
+name: 放量突破
+description: 关注接近压力位且成交额扩张的右侧突破形态。
 tags: [breakout, volume]
 risk_bias: aggressive
 rules:
@@ -8,16 +8,15 @@ rules:
     op: "<="
     value: 3
     weight: 18
-    evidence: Price is close to 20-day resistance.
-    risk: False breakout risk is high without follow-through.
+    evidence: 价格接近 20 日压力位，具备突破观察价值。
+    risk: 若无后续量价确认，假突破风险较高。
   - metric: volume.volume_ratio_5_20
     op: ">="
     value: 1.18
     weight: 20
-    evidence: Recent volume is above the 20-day average.
+    evidence: 近期成交量高于 20 日均量。
   - metric: momentum.return_20d_pct
     op: ">="
     value: 4
     weight: 10
-    evidence: Recent relative strength is positive.
-
+    evidence: 近期相对强度为正。

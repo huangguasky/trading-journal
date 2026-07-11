@@ -1,0 +1,27 @@
+key: expectation_reset
+name: 预期重估
+description: 用事件流、趋势确认和量能变化捕捉市场重新定价的阶段。
+tags: [expectation, event, repricing]
+risk_bias: aggressive
+rules:
+  - metric: news_count
+    op: ">="
+    value: 2
+    weight: 12
+    evidence: 近期信息密度较高，存在预期重估基础。
+  - metric: trend.above_ma20
+    op: truthy
+    value: true
+    weight: 10
+    evidence: 价格站上 MA20，市场对信息流给出正反馈。
+  - metric: volume.volume_ratio_5_20
+    op: ">="
+    value: 1.05
+    weight: 10
+    evidence: 成交活跃度改善，重估过程有资金参与。
+  - metric: momentum.return_20d_pct
+    op: ">="
+    value: 3
+    weight: 8
+    evidence: 近 20 日表现转强，预期变化已反映到价格。
+

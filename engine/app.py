@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from dataclasses import replace
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any
 from urllib.parse import parse_qs, urlparse
@@ -11,13 +12,13 @@ from engine.analysis.market_pipeline import MarketPipeline
 from engine.analysis.stock_pipeline import StockPipeline
 from engine.analysis.tracking import TrackingService
 from engine.config import get_settings
+from engine.data.market_data import MarketData
+from engine.data.news_data import NewsData
 from engine.storage.db import Database
+from engine.strategies.registry import StrategyRegistry
 
 settings = get_settings()
 db = Database(settings.db_path)
-stock_pipeline = StockPipeline(db)
-market_pipeline = MarketPipeline(db)
-tool_registry = ToolRegistry(db, settings.tool_timeout_s)
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -38,9 +39,11 @@ class Handler(BaseHTTPRequestHandler):
                 symbol = query.get("symbol", [None])[0]
                 self.send_json({"items": TrackingService(db).snapshot(symbol)})
             elif path == "/strategies":
-                self.send_json({"items": [item.__dict__ for item in stock_pipeline.strategies.all()]})
+                self.send_json({"items": [item.__dict__ for item in StrategyRegistry().all()]})
             elif path == "/dashboard":
                 self.send_json(build_dashboard())
+            elif path == "/settings":
+                self.send_json({"settings": db.get_system_settings(), "llm_ready": is_llm_ready(db.get_system_settings())})
             else:
                 self.send_json({"error": "not_found"}, 404)
         except Exception as exc:
@@ -51,17 +54,20 @@ class Handler(BaseHTTPRequestHandler):
         body = self.read_json()
         try:
             if path == "/analyze/stock":
-                self.send_json(stock_pipeline.analyze(body["symbol"], save=bool(body.get("save", True))))
+                self.send_json(build_stock_pipeline().analyze(body["symbol"], save=bool(body.get("save", True))))
             elif path == "/analyze/watchlist":
-                self.send_json(stock_pipeline.analyze_watchlist(list(body.get("symbols", [])), save=bool(body.get("save", True))))
+                self.send_json(build_stock_pipeline().analyze_watchlist(list(body.get("symbols", [])), save=bool(body.get("save", True))))
             elif path == "/analyze/market":
-                self.send_json(market_pipeline.analyze(body.get("market", "cn"), save=bool(body.get("save", True))))
+                self.send_json(build_market_pipeline().analyze(body.get("market", "cn"), save=bool(body.get("save", True))))
             elif path == "/chat":
-                result = run_agent_loop(str(body.get("message", "")), tool_registry, settings)
+                result = run_agent_loop(str(body.get("message", "")), ToolRegistry(db, effective_settings().tool_timeout_s), effective_settings())
                 self.send_json(result.__dict__)
             elif path == "/watchlist":
                 db.upsert_watchlist(list(body.get("symbols", [])))
                 self.send_json({"items": db.list_watchlist()})
+            elif path == "/settings":
+                updated = db.update_system_settings(body)
+                self.send_json({"settings": updated, "llm_ready": is_llm_ready(updated)})
             else:
                 self.send_json({"error": "not_found"}, 404)
         except Exception as exc:
@@ -100,6 +106,74 @@ def build_dashboard() -> dict:
     }
 
 
+def build_stock_pipeline() -> StockPipeline:
+    values = db.get_system_settings()
+    market_data = MarketData(
+        provider_order=resolve_provider_order(values),
+        api_keys=provider_keys(values),
+        timeout_s=parse_float(values.get("tool_timeout_s"), settings.tool_timeout_s),
+    )
+    news_data = NewsData(values.get("news_api_key", ""), timeout_s=parse_float(values.get("tool_timeout_s"), settings.tool_timeout_s))
+    return StockPipeline(db, market_data=market_data, news_data=news_data)
+
+
+def build_market_pipeline() -> MarketPipeline:
+    values = db.get_system_settings()
+    market_data = MarketData(
+        provider_order=resolve_provider_order(values),
+        api_keys=provider_keys(values),
+        timeout_s=parse_float(values.get("tool_timeout_s"), settings.tool_timeout_s),
+    )
+    news_data = NewsData(values.get("news_api_key", ""), timeout_s=parse_float(values.get("tool_timeout_s"), settings.tool_timeout_s))
+    return MarketPipeline(db, market_data=market_data, news_data=news_data)
+
+
+def provider_keys(values: dict[str, str]) -> dict[str, str]:
+    return {
+        "tushare_token": values.get("tushare_token", ""),
+        "alpha_vantage_key": values.get("alpha_vantage_key", ""),
+    }
+
+
+def resolve_provider_order(values: dict[str, str]) -> str:
+    selected = (values.get("data_provider") or "auto").strip().lower()
+    if selected and selected != "auto":
+        return selected
+    return values.get("data_provider_order") or "auto"
+
+
+def effective_settings():
+    values = db.get_system_settings()
+    llm_enabled = values.get("llm_enabled") == "true"
+    api_key = values.get("openai_api_key") or settings.llm_api_key or ""
+    return replace(
+        settings,
+        llm_api_key=api_key if llm_enabled and api_key else None,
+        llm_base_url=values.get("openai_base_url") or settings.llm_base_url,
+        llm_model=values.get("openai_model") or settings.llm_model,
+        tool_timeout_s=parse_float(values.get("tool_timeout_s"), settings.tool_timeout_s),
+        agent_max_steps=parse_int(values.get("agent_max_steps"), settings.agent_max_steps),
+    )
+
+
+def is_llm_ready(values: dict[str, str]) -> bool:
+    return values.get("llm_enabled") == "true" and bool(values.get("openai_api_key", "").strip())
+
+
+def parse_float(value: str | None, fallback: float) -> float:
+    try:
+        return float(value) if value is not None else fallback
+    except ValueError:
+        return fallback
+
+
+def parse_int(value: str | None, fallback: int) -> int:
+    try:
+        return int(value) if value is not None else fallback
+    except ValueError:
+        return fallback
+
+
 def main() -> None:
     server = ThreadingHTTPServer((settings.host, settings.port), Handler)
     print(f"Trading Journal Engine listening on http://{settings.host}:{settings.port}")
@@ -108,4 +182,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

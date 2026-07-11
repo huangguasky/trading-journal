@@ -1,6 +1,6 @@
 key: quality_growth
-name: Quality Growth
-description: Prefer stable trends with moderate volatility and avoid crowded overheat.
+name: 质量成长
+description: 偏好趋势稳定、波动适中且未明显拥挤过热的成长型标的。
 tags: [quality, growth]
 risk_bias: balanced
 rules:
@@ -8,15 +8,14 @@ rules:
     op: truthy
     value: true
     weight: 14
-    evidence: Long-term trend is constructive.
+    evidence: 长期趋势结构较好。
   - metric: levels.atr_pct
     op: "<="
     value: 4.5
     weight: 12
-    evidence: Volatility remains manageable.
+    evidence: 波动率仍处于可管理范围。
   - metric: momentum.rsi14
     op: "<="
     value: 72
     weight: 8
-    evidence: Momentum is below extreme overheat.
-
+    evidence: 动量未达到极端过热。

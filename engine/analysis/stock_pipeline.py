@@ -24,12 +24,18 @@ class StockPipeline:
 
     def analyze(self, code: str, save: bool = True) -> dict:
         symbol = normalize_symbol(code)
-        bars = self.market_data.history(symbol)
-        quote = asdict(self.market_data.quote(symbol))
-        indicators = compute_indicators(bars)
-        news = self.news_data.stock_news(symbol.display)
+        history_bundle = self.market_data.history_bundle(symbol)
+        quote = quote_from_history(symbol, history_bundle)
+        indicators = compute_indicators(history_bundle.bars)
+        news_bundle = self.news_data.stock_news_bundle(symbol.display)
+        news = news_bundle.items
         strategy_results = [asdict(item) for item in self.strategies.select_for_stock(indicators, news)]
-        evidence = build_stock_evidence(symbol.display, quote, indicators, news, strategy_results)
+        data_quality = {
+            "history": quality_to_dict(history_bundle.quality),
+            "price": quality_to_dict(history_bundle.quality),
+            "news": news_bundle.quality,
+        }
+        evidence = build_stock_evidence(symbol.display, quote, indicators, news, strategy_results, data_quality)
         report, markdown = build_stock_report(
             {
                 "symbol": symbol.display,
@@ -42,7 +48,7 @@ class StockPipeline:
             }
         )
         if save:
-            report_id = self.db.save_report("stock", f"{symbol.display} Stock Report", report["score"], report, markdown, symbol.display, symbol.market, report["rating"])
+            report_id = self.db.save_report("stock", f"{symbol.display} 个股分析报告", report["score"], report, markdown, symbol.display, symbol.market, report["rating"])
             report["id"] = report_id
             report["tracking_task_id"] = self.tracking.create_for_report(report_id, report)
         report["markdown"] = markdown
@@ -61,3 +67,28 @@ class StockPipeline:
 def risk_alert(report: dict) -> dict:
     return {"symbol": report["symbol"], "score": report["score"], "top_risk": report["risk_flags"][0]}
 
+
+def quality_to_dict(quality) -> dict:
+    return {
+        "source": quality.source,
+        "status": quality.status,
+        "confidence": quality.confidence,
+        "attempts": [asdict(item) for item in quality.attempts],
+        "notes": quality.notes,
+    }
+
+
+def quote_from_history(symbol, history_bundle) -> dict:
+    bars = history_bundle.bars
+    last = bars[-1]
+    prev = bars[-2]
+    currency = {"cn": "CNY", "hk": "HKD", "us": "USD"}[symbol.market]
+    return {
+        "symbol": symbol.display,
+        "market": symbol.market,
+        "name": symbol.display,
+        "price": round(last.close, 3),
+        "change_pct": round((last.close / prev.close - 1) * 100, 2),
+        "currency": currency,
+        "source": history_bundle.quality.source,
+    }

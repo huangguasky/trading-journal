@@ -1,0 +1,28 @@
+key: theme_heat
+name: 主题热度
+description: 关注题材热度扩散时的量价确认，但避免在极端过热阶段无计划追高。
+tags: [theme, heat, momentum]
+risk_bias: aggressive
+rules:
+  - metric: news_count
+    op: ">="
+    value: 1
+    weight: 8
+    evidence: 存在主题或消息触发因素。
+  - metric: volume.volume_ratio_5_20
+    op: ">="
+    value: 1.25
+    weight: 16
+    evidence: 量能明显放大，题材关注度提升。
+  - metric: momentum.return_20d_pct
+    op: ">="
+    value: 6
+    weight: 12
+    evidence: 价格已有主题扩散后的强势表现。
+  - metric: momentum.rsi14
+    op: "<="
+    value: 78
+    weight: 6
+    evidence: 尚未进入极端拥挤状态。
+    risk: RSI 极端过热时容易出现分歧回落。
+

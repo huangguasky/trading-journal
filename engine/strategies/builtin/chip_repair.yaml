@@ -1,0 +1,26 @@
+key: chip_repair
+name: 筹码修复
+description: 观察获利盘、成本集中度与支撑距离，寻找筹码压力缓和后的修复机会。
+tags: [chip, repair, risk]
+risk_bias: defensive
+rules:
+  - metric: chips.profit_position_pct
+    op: "<="
+    value: 75
+    weight: 12
+    evidence: 获利盘比例尚未过高，抛压相对可控。
+  - metric: chips.cost_concentration
+    op: "<="
+    value: 35
+    weight: 10
+    evidence: 成本分布相对集中，价格修复更容易形成合力。
+  - metric: levels.distance_to_support_pct
+    op: "<="
+    value: 6
+    weight: 10
+    evidence: 距离支撑较近，风险边界更清晰。
+  - metric: levels.atr_pct
+    op: "<="
+    value: 5.5
+    weight: 8
+    evidence: 波动没有明显失控，筹码修复可继续跟踪。

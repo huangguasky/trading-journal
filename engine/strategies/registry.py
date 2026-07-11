@@ -74,9 +74,9 @@ def evaluate_strategy(definition: StrategyDefinition, indicators: dict, news: li
                 risks.append(str(rule["risk"]))
     bounded = round(max(0, min(100, score)), 1)
     if not evidence:
-        evidence.append("No strong condition matched; keep as observation.")
+        evidence.append("暂未命中强信号，适合作为观察项。")
     if definition.risk_bias == "defensive":
-        risks.append("Strategy is defensive; avoid position expansion before confirmation.")
+        risks.append("该策略偏防守，确认信号出现前不宜扩大仓位。")
     return StrategyResult(definition.key, definition.name, bounded, score_to_stance(bounded), evidence, list(dict.fromkeys(risks))[:4])
 
 
@@ -164,4 +164,3 @@ def parse_scalar(value: str) -> Any:
         return int(value)
     except ValueError:
         return value
-

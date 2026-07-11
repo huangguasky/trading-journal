@@ -1,6 +1,6 @@
 key: pullback_entry
-name: Pullback Entry
-description: Look for a controlled pullback inside a still-healthy medium-term trend.
+name: 回踩低吸
+description: 在中期趋势未破坏的前提下，寻找受控回踩后的低吸机会。
 tags: [pullback, timing]
 risk_bias: balanced
 rules:
@@ -8,16 +8,15 @@ rules:
     op: truthy
     value: true
     weight: 18
-    evidence: Medium-term trend is still constructive.
+    evidence: 中期趋势仍保持建设性。
   - metric: levels.distance_to_support_pct
     op: "<="
     value: 4
     weight: 18
-    evidence: Price is close to 20-day support.
-    risk: Support break requires discipline.
+    evidence: 价格接近 20 日支撑位。
+    risk: 若支撑位跌破，需要严格执行风控。
   - metric: momentum.rsi14
     op: "<="
     value: 58
     weight: 10
-    evidence: Momentum is not overheated.
-
+    evidence: 动量未处于明显过热区。

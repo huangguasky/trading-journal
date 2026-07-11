@@ -1,0 +1,28 @@
+key: market_leader
+name: 强势龙头
+description: 偏向市场主线中的强势标的，要求趋势、动量和量能共同验证。
+tags: [leader, momentum, trend]
+risk_bias: aggressive
+rules:
+  - metric: trend.above_ma20
+    op: truthy
+    value: true
+    weight: 12
+    evidence: 价格维持在 MA20 上方，短线资金承接较强。
+  - metric: trend.above_ma60
+    op: truthy
+    value: true
+    weight: 14
+    evidence: 中期趋势保持强势。
+  - metric: momentum.return_20d_pct
+    op: ">="
+    value: 8
+    weight: 14
+    evidence: 20 日涨幅较强，具备龙头候选特征。
+    risk: 涨幅过大时追高容错会下降。
+  - metric: volume.volume_ratio_5_20
+    op: ">="
+    value: 1.15
+    weight: 10
+    evidence: 量能放大，说明资金关注度提升。
+

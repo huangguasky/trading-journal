@@ -1,0 +1,28 @@
+key: ma_reversal
+name: 均线拐点
+description: 用短中期均线位置和斜率识别趋势从修复走向确认的阶段。
+tags: [trend, reversal, moving_average]
+risk_bias: balanced
+rules:
+  - metric: trend.above_ma20
+    op: truthy
+    value: true
+    weight: 12
+    evidence: 价格重新站上 MA20，短线修复开始成形。
+  - metric: trend.ma20_slope_pct
+    op: ">"
+    value: 0
+    weight: 12
+    evidence: MA20 斜率转正，趋势拐点质量提高。
+  - metric: momentum.macd_hist
+    op: ">"
+    value: 0
+    weight: 10
+    evidence: MACD 柱体转正，动量配合均线修复。
+  - metric: trend.above_ma60
+    op: truthy
+    value: true
+    weight: 10
+    evidence: 站上 MA60 后，中期趋势确认度提升。
+    risk: 若仍在 MA60 下方，拐点只适合作为试探信号。
+

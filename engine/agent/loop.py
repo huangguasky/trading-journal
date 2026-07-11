@@ -75,23 +75,23 @@ def synthesize_with_llm(message: str, plan: dict, tool_trace: list[dict], settin
 
 def fallback_answer(message: str, plan: dict, trace: list[dict], symbols: list[str]) -> str:
     if not trace:
-        return "I need a symbol or market context first. Try `600519 can I chase?`, `HK00700 breakout strategy`, or `US market review`."
-    lines = [f"Intent: {plan['intent']}. I used {len(trace)} local tool calls."]
+        return "我需要先知道你要问的股票或市场。可以试试：`600519 能追吗`、`HK00700 用突破策略看一下`、`美股市场复盘`。"
+    lines = [f"识别意图：{intent_label(plan['intent'])}。本次调用了 {len(trace)} 个本地工具。"]
     for item in trace:
         result = item["result"]
         if not result.get("ok"):
-            lines.append(f"- {item['call']['name']} failed: {result.get('error')}")
+            lines.append(f"- {tool_label(item['call']['name'])} 调用失败：{result.get('error')}")
             continue
         payload = result.get("result")
         if item["call"]["name"] == "run_stock_report":
-            lines.append(f"- {payload['symbol']}: score {payload['score']}/100, action {payload['action']}, top risk: {(payload['risk_flags'] or ['none'])[0]}")
+            lines.append(f"- {payload['symbol']}：评分 {payload['score']}/100，建议“{payload['action']}”，首要风险：{(payload['risk_flags'] or ['暂无'])[0]}")
         elif item["call"]["name"] == "get_market_context":
-            lines.append(f"- {payload['market'].upper()} market: {payload['market_regime']}, score {payload['score']}/100, bias {payload['strategy_bias']}")
+            lines.append(f"- {market_label(payload['market'])}：状态 {market_regime_label(payload['market_regime'])}，评分 {payload['score']}/100，策略倾向 {strategy_bias_label(payload['strategy_bias'])}")
         elif item["call"]["name"] == "get_indicators":
-            lines.append(f"- Indicators: MA20 {payload['trend']['ma20']}, RSI {payload['momentum']['rsi14']}, ATR {payload['levels']['atr_pct']}%")
+            lines.append(f"- 技术指标：MA20 {payload['trend']['ma20']}，RSI {payload['momentum']['rsi14']}，ATR {payload['levels']['atr_pct']}%")
         elif item["call"]["name"] == "get_last_report" and payload:
-            lines.append(f"- Last report: {payload['title']} score {payload['score']}")
-    lines.append("Use this as a review input, not as investment advice. Verify live quotes and announcements before trading.")
+            lines.append(f"- 最近报告：{payload['title']}，评分 {payload['score']}")
+    lines.append("以上内容适合作为复盘和交易计划输入，不构成投资建议；下单前请复核实时行情、公告与风险事件。")
     return "\n".join(lines)
 
 
@@ -101,3 +101,31 @@ def build_card(plan: dict, trace: list[dict]) -> dict:
         card["tools"].append({"name": item["call"]["name"], "ok": bool(item["result"].get("ok"))})
     return card
 
+
+def intent_label(value: str) -> str:
+    return {"market": "市场复盘", "report_followup": "报告追问", "stock_decision": "个股决策", "general_stock": "个股查询"}.get(value, value)
+
+
+def tool_label(value: str) -> str:
+    return {
+        "get_quote": "行情",
+        "get_history": "K线",
+        "get_indicators": "技术指标",
+        "search_news": "资讯检索",
+        "get_last_report": "历史报告",
+        "get_signal_tracking": "信号追踪",
+        "get_market_context": "市场上下文",
+        "run_stock_report": "个股流水线",
+    }.get(value, value)
+
+
+def market_label(value: str) -> str:
+    return {"cn": "A股", "hk": "港股", "us": "美股"}.get(value, value.upper())
+
+
+def market_regime_label(value: str) -> str:
+    return {"risk_on": "风险偏好升温", "neutral": "震荡均衡", "risk_off": "防守优先", "volatile": "高波动震荡"}.get(value, value)
+
+
+def strategy_bias_label(value: str) -> str:
+    return {"trend": "趋势跟随", "defensive": "防守优先", "wait": "等待确认", "event": "事件驱动"}.get(value, value)

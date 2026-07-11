@@ -1,6 +1,6 @@
 key: risk_first
-name: Risk First
-description: Defensive lens focused on volatility, support distance and position sizing.
+name: 风险优先
+description: 从波动、支撑距离和仓位约束出发，优先控制回撤风险。
 tags: [risk, defensive]
 risk_bias: defensive
 rules:
@@ -8,16 +8,15 @@ rules:
     op: "<="
     value: 5
     weight: 16
-    evidence: ATR risk is within normal range.
-    risk: ATR is elevated; reduce position size.
+    evidence: ATR 风险处于常规范围。
+    risk: ATR 偏高，应降低仓位。
   - metric: levels.distance_to_support_pct
     op: "<="
     value: 6
     weight: 10
-    evidence: Stop distance is not too wide.
+    evidence: 止损距离没有明显过宽。
   - metric: chips.profit_position_pct
     op: "<="
     value: 85
     weight: 8
-    evidence: Profit distribution is not extremely crowded.
-
+    evidence: 获利盘分布未达到极端拥挤。
