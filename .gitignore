@@ -7,7 +7,7 @@ build/
 node_modules/
 *.log
 .env
-data/
+/data/
 desktop/dist/
 desktop/node_modules/
 desktop/src-tauri/target/
