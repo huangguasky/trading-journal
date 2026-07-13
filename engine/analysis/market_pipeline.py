@@ -9,13 +9,16 @@ from .report_builder import build_market_report
 
 
 class MarketPipeline:
+    """Coordinate market data, news, scoring, reporting, and persistence."""
     def __init__(self, db: Database, market_data: MarketData | None = None, news_data: NewsData | None = None, strategies: StrategyRegistry | None = None):
+        """Initialize the pipeline with injectable services for testing or customization."""
         self.db = db
         self.market_data = market_data or MarketData()
         self.news_data = news_data or NewsData()
         self.strategies = strategies or StrategyRegistry()
 
     def analyze(self, market: str, save: bool = True) -> dict:
+        """Analyze one market and optionally persist the structured report."""
         market = market if market in {"cn", "hk", "us"} else "cn"
         snapshot = self.market_data.market_snapshot(market)
         news_bundle = self.news_data.market_news_bundle(market)
@@ -44,6 +47,7 @@ class MarketPipeline:
 
 
 def market_score(snapshot: dict) -> float:
+    """Calculate a bounded market score from trend, breadth, and index changes."""
     index_scores = [50 + item["change_pct"] * 8 for item in snapshot["indices"]]
     breadth = snapshot["breadth"]
     breadth_score = breadth["advancers"] / max(1, breadth["advancers"] + breadth["decliners"]) * 100
@@ -58,6 +62,7 @@ def market_score(snapshot: dict) -> float:
 
 
 def regime_for_score(score: float, snapshot: dict) -> str:
+    """Classify the market regime from score and breadth conditions."""
     turnover = snapshot["breadth"].get("turnover_billion", 0)
     decliners = snapshot["breadth"].get("decliners", 0)
     advancers = snapshot["breadth"].get("advancers", 0)
@@ -71,6 +76,7 @@ def regime_for_score(score: float, snapshot: dict) -> str:
 
 
 def build_market_context(market: str, snapshot: dict, score: float) -> dict:
+    """Build the concise market context consumed by reports and strategies."""
     breadth = snapshot["breadth"]
     total = max(1, breadth.get("advancers", 0) + breadth.get("decliners", 0))
     adv_ratio = round(breadth.get("advancers", 0) / total * 100, 1)
@@ -86,6 +92,7 @@ def build_market_context(market: str, snapshot: dict, score: float) -> dict:
 
 
 def market_risks(score: float, snapshot: dict, news_quality: dict) -> list[str]:
+    """Describe material score, breadth, volatility, and news-quality risks."""
     risks = []
     breadth = snapshot["breadth"]
     if score < 45:
@@ -104,6 +111,7 @@ def market_risks(score: float, snapshot: dict, news_quality: dict) -> list[str]:
 
 
 def tomorrow_watch(market: str, snapshot: dict, context: dict) -> list[str]:
+    """Build the next-session checklist from the current market context."""
     leaders = snapshot["sector_rotation"]["leaders"]
     return [
         f"确认领先方向是否延续：{'、'.join(leaders[:3])}",
@@ -113,6 +121,7 @@ def tomorrow_watch(market: str, snapshot: dict, context: dict) -> list[str]:
 
 
 def merge_market_quality(snapshot_quality: dict, news_quality: dict) -> dict:
+    """Merge market-price and news provenance into one quality assessment."""
     confidence = "low" if snapshot_quality.get("confidence") == "low" or news_quality.get("confidence") == "low" else "medium"
     status = "fallback" if snapshot_quality.get("status") == "fallback" or news_quality.get("status") == "fallback" else "ok"
     return {

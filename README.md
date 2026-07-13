@@ -63,11 +63,33 @@ Chat uses a small ReAct loop because user questions are open-ended. Tools includ
 
 ## Run
 
+### Prerequisites
+
+- Python 3.10 or later installed in the Conda environment named `tj`. Verify it
+  with `conda run -n tj python --version`.
+
 Engine only:
 
 ```powershell
 python -m engine.app
 ```
+
+Command-line analysis:
+
+```powershell
+# Analyze a single stock
+python -m engine.runtime --stock AAPL
+
+# Analyze multiple watchlist symbols
+python -m engine.runtime --watchlist AAPL MSFT 600519
+
+# Analyze a market (cn, hk, or us)
+python -m engine.runtime --market cn
+```
+
+The commands print analysis results directly to the terminal. After installing the
+project with `pip install -e .`, `tj-runtime` can be used instead of
+`python -m engine.runtime`.
 
 Desktop:
 
@@ -92,4 +114,3 @@ $env:OPENAI_MODEL="gpt-4o-mini"
 ```
 
 Without optional dependencies, the engine uses deterministic local sample data so the full research loop remains usable.
-

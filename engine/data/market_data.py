@@ -13,6 +13,7 @@ from .normalize import Symbol, normalize_symbol
 
 @dataclass
 class Bar:
+    """One normalized OHLCV price bar."""
     date: str
     open: float
     high: float
@@ -23,6 +24,7 @@ class Bar:
 
 @dataclass
 class Quote:
+    """Latest normalized quote presented to analysis consumers."""
     symbol: str
     market: str
     name: str
@@ -34,6 +36,7 @@ class Quote:
 
 @dataclass
 class ProviderAttempt:
+    """Outcome of one provider attempt in the fallback chain."""
     provider: str
     status: str
     message: str = ""
@@ -41,6 +44,7 @@ class ProviderAttempt:
 
 @dataclass
 class DataQuality:
+    """Provenance, confidence, and fallback details for market data."""
     source: str
     status: str
     confidence: str
@@ -50,23 +54,30 @@ class DataQuality:
 
 @dataclass
 class HistoryBundle:
+    """Normalized price history paired with quality metadata."""
     bars: list[Bar]
     quality: DataQuality
 
 
 class MarketData:
+    """Load market data through an ordered provider fallback chain."""
     def __init__(self, provider_order: str | list[str] = "auto", api_keys: dict[str, str] | None = None, timeout_s: float = 8):
+        """Configure provider priority, credentials, and network timeout."""
         self.provider_order = parse_provider_order(provider_order)
         self.api_keys = api_keys or {}
         self.timeout_s = timeout_s
         self.last_quality: dict[str, DataQuality] = {}
 
     def history(self, symbol_or_code: Symbol | str, days: int = 260) -> list[Bar]:
+        """Return normalized history bars without quality metadata."""
         return self.history_bundle(symbol_or_code, days).bars
 
     def history_bundle(self, symbol_or_code: Symbol | str, days: int = 260) -> HistoryBundle:
+        """Try compatible providers in order and fall back to sample history."""
         symbol = symbol_or_code if isinstance(symbol_or_code, Symbol) else normalize_symbol(symbol_or_code)
         attempts: list[ProviderAttempt] = []
+        # A provider is accepted only when it returns enough bars for the
+        # downstream moving averages; otherwise the next provider is tried.
         for provider in self.providers_for(symbol):
             loader = self.loader_for(provider)
             if loader is None:
@@ -82,6 +93,8 @@ class MarketData:
             except Exception as exc:
                 attempts.append(ProviderAttempt(provider, "failed", compact_error(exc)))
 
+        # Offline samples keep the application workflow usable, but quality is
+        # deliberately marked low so reports do not present them as live data.
         bars = sample_history(symbol, days)
         quality = DataQuality(
             "sample",
@@ -94,6 +107,7 @@ class MarketData:
         return HistoryBundle(bars, quality)
 
     def quote(self, symbol_or_code: Symbol | str) -> Quote:
+        """Return the latest quote derived from normalized history."""
         symbol = symbol_or_code if isinstance(symbol_or_code, Symbol) else normalize_symbol(symbol_or_code)
         bundle = self.history_bundle(symbol, 260)
         bars = bundle.bars
@@ -103,6 +117,7 @@ class MarketData:
         return Quote(symbol.display, symbol.market, symbol.display, round(last.close, 3), round((last.close / prev.close - 1) * 100, 2), currency, bundle.quality.source)
 
     def quote_with_quality(self, symbol_or_code: Symbol | str) -> tuple[Quote, DataQuality]:
+        """Return the latest quote together with its source-quality metadata."""
         symbol = symbol_or_code if isinstance(symbol_or_code, Symbol) else normalize_symbol(symbol_or_code)
         bundle = self.history_bundle(symbol, 260)
         bars = bundle.bars
@@ -113,6 +128,7 @@ class MarketData:
         return quote, bundle.quality
 
     def market_snapshot(self, market: str) -> dict:
+        """Build a market-wide snapshot from representative index histories."""
         symbols = {
             "cn": ["000001", "399001", "399006", "000300"],
             "hk": ["HK800000", "HK800700", "HK800100", "HK00700", "HK09988"],
@@ -125,6 +141,8 @@ class MarketData:
             quotes.append(asdict(quote))
             qualities.append(quality_to_dict(quality))
         index_count = {"cn": 4, "hk": 3, "us": 6}.get(market, 3)
+        # The leading symbols represent broad indices; the remainder form a
+        # small universe used to illustrate leaders and sector rotation.
         indices = quotes[:index_count]
         leaders_universe = quotes[index_count:] or quotes
         scores = [max(0, min(100, 50 + item["change_pct"] * 8)) for item in indices]
@@ -140,6 +158,7 @@ class MarketData:
         }
 
     def providers_for(self, symbol: Symbol) -> list[str]:
+        """Return configured providers that support the symbol's market."""
         selected = self.provider_order
         if selected == ["auto"]:
             selected = ["tushare", "akshare", "yfinance", "alpha_vantage", "sample"]
@@ -153,6 +172,7 @@ class MarketData:
         return [item for item in selected if item in allowed] or ["sample"]
 
     def loader_for(self, provider: str) -> Callable[[Symbol, int], list[Bar]] | None:
+        """Resolve a provider name to its history-loading method."""
         return {
             "akshare": self._load_akshare,
             "yfinance": self._load_yfinance,
@@ -162,6 +182,7 @@ class MarketData:
         }.get(provider)
 
     def _load_yfinance(self, symbol: Symbol, days: int) -> list[Bar]:
+        """Load and normalize history through yfinance."""
         import yfinance as yf
 
         frame = yf.download(symbol.provider_code, period=f"{max(days, 30)}d", progress=False, auto_adjust=False, threads=False)
@@ -177,6 +198,7 @@ class MarketData:
         return bars
 
     def _load_akshare(self, symbol: Symbol, days: int) -> list[Bar]:
+        """Load and normalize history through AkShare."""
         if symbol.market != "cn":
             return []
         import akshare as ak
@@ -198,6 +220,7 @@ class MarketData:
         return [bar for bar in bars if bar.close > 0]
 
     def _load_tushare(self, symbol: Symbol, days: int) -> list[Bar]:
+        """Load and normalize history through Tushare."""
         token = self.api_keys.get("tushare_token", "").strip()
         if not token:
             raise RuntimeError("未配置 Tushare Token")
@@ -219,6 +242,7 @@ class MarketData:
         ]
 
     def _load_alpha_vantage(self, symbol: Symbol, days: int) -> list[Bar]:
+        """Load and normalize daily history through Alpha Vantage."""
         key = self.api_keys.get("alpha_vantage_key", "").strip()
         if not key:
             raise RuntimeError("未配置 Alpha Vantage Key")
@@ -233,6 +257,7 @@ class MarketData:
 
 
 def parse_provider_order(value: str | list[str]) -> list[str]:
+    """Normalize provider configuration into a distinct ordered name list."""
     if isinstance(value, list):
         raw = value
     else:
@@ -244,6 +269,7 @@ def parse_provider_order(value: str | list[str]) -> list[str]:
 
 
 def safe_float(value: Any) -> float:
+    """Convert provider values to float while treating missing values as zero."""
     try:
         if hasattr(value, "item"):
             value = value.item()
@@ -253,11 +279,13 @@ def safe_float(value: Any) -> float:
 
 
 def compact_error(exc: Exception) -> str:
+    """Return a short single-line provider error suitable for quality metadata."""
     text = str(exc).strip() or exc.__class__.__name__
     return text[:160]
 
 
 def sample_history(symbol: Symbol, days: int = 260) -> list[Bar]:
+    """Generate deterministic synthetic history for offline operation."""
     seed = sum(ord(ch) for ch in symbol.display)
     base = 12 + seed % 220
     today = date.today()
@@ -274,6 +302,7 @@ def sample_history(symbol: Symbol, days: int = 260) -> list[Bar]:
 
 
 def synthetic_breadth(market: str, scores: list[float]) -> dict:
+    """Derive a stable breadth estimate from representative asset scores."""
     avg = sum(scores) / len(scores)
     total = {"cn": 5200, "hk": 2500, "us": 5000}.get(market, 3000)
     advancers = int(total * max(0.2, min(0.8, avg / 100)))
@@ -287,6 +316,7 @@ def synthetic_breadth(market: str, scores: list[float]) -> dict:
 
 
 def synthetic_sector_rotation(market: str, scores: list[float], assets: list[dict[str, Any]]) -> dict:
+    """Construct a deterministic sector-rotation view from snapshot scores."""
     base = {
         "cn": ["AI硬件", "券商", "新能源", "消费", "医药", "地产"],
         "hk": ["互联网", "生物科技", "地产", "金融", "能源", "消费"],
@@ -302,6 +332,7 @@ def synthetic_sector_rotation(market: str, scores: list[float], assets: list[dic
 
 
 def quality_to_dict(quality: DataQuality) -> dict[str, Any]:
+    """Serialize data-quality dataclasses into a JSON-compatible dictionary."""
     return {
         "source": quality.source,
         "status": quality.status,
@@ -312,6 +343,7 @@ def quality_to_dict(quality: DataQuality) -> dict[str, Any]:
 
 
 def combine_quality(items: list[dict[str, Any]]) -> dict[str, Any]:
+    """Aggregate asset quality records into a market-level quality summary."""
     statuses = {item.get("status") for item in items}
     confidences = {item.get("confidence") for item in items}
     return {

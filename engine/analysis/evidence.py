@@ -2,6 +2,7 @@ from __future__ import annotations
 
 
 def build_stock_evidence(symbol: str, quote: dict, indicators: dict, news: list[dict], strategies: list[dict], data_quality: dict | None = None) -> dict:
+    """Assemble the facts, confirmations, conflicts, and strategy stack for a stock."""
     selected = select_strategy_stack(strategies)
     return {
         "symbol": symbol,
@@ -16,6 +17,7 @@ def build_stock_evidence(symbol: str, quote: dict, indicators: dict, news: list[
 
 
 def select_strategy_stack(strategies: list[dict]) -> dict:
+    """Select the strongest primary strategy and supporting secondary strategies."""
     positive = [item for item in strategies if item.get("stance") == "positive"]
     neutral = [item for item in strategies if item.get("stance") == "neutral"]
     defensive = [item for item in strategies if item.get("stance") == "negative"]
@@ -30,6 +32,7 @@ def select_strategy_stack(strategies: list[dict]) -> dict:
 
 
 def build_confirmations(indicators: dict, stack: dict) -> list[str]:
+    """Describe indicator and strategy signals that reinforce the thesis."""
     confirmations: list[str] = []
     if indicators["trend"]["above_ma20"] and indicators["trend"]["above_ma60"]:
         confirmations.append("价格站上 20 日和 60 日均线，趋势结构具备延续基础。")
@@ -44,6 +47,7 @@ def build_confirmations(indicators: dict, stack: dict) -> list[str]:
 
 
 def detect_conflicts(indicators: dict, strategies: list[dict], data_quality: dict) -> list[str]:
+    """Identify contradictory signals and data-quality limitations."""
     conflicts: list[str] = []
     if indicators["trend"]["above_ma60"] and indicators["momentum"]["rsi14"] > 78:
         conflicts.append("趋势结构偏多，但 RSI 已进入过热区，追高性价比下降。")

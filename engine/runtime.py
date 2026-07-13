@@ -9,6 +9,7 @@ from engine.storage.db import Database
 
 
 def main() -> None:
+    """Parse CLI options and run the requested stock, watchlist, or market analysis."""
     parser = argparse.ArgumentParser()
     parser.add_argument("--stock")
     parser.add_argument("--watchlist", nargs="*")
@@ -26,4 +27,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

@@ -2,11 +2,13 @@ from engine.data.market_data import Bar
 
 
 def sma(values: list[float], window: int) -> float:
+    """Calculate a simple moving average over the available trailing window."""
     sample = values[-window:]
     return sum(sample) / len(sample)
 
 
 def trend_indicators(bars: list[Bar]) -> dict:
+    """Calculate moving averages and classify the prevailing price trend."""
     closes = [bar.close for bar in bars]
     ma20 = sma(closes, min(20, len(closes)))
     ma60 = sma(closes, min(60, len(closes)))

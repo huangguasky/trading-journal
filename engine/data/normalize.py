@@ -6,6 +6,7 @@ from dataclasses import dataclass
 
 @dataclass(frozen=True)
 class Symbol:
+    """Canonical representation of a stock symbol and its market/exchange."""
     raw: str
     market: str
     display: str
@@ -13,6 +14,7 @@ class Symbol:
 
 
 def normalize_symbol(value: str) -> Symbol:
+    """Normalize common CN, HK, and US ticker formats into a canonical symbol."""
     raw = str(value or "").strip()
     if not raw:
         raise ValueError("symbol is required")
@@ -36,9 +38,9 @@ def normalize_symbol(value: str) -> Symbol:
 
 
 def infer_cn_exchange(digits: str) -> str:
+    """Infer the Chinese exchange from the conventional numeric ticker prefix."""
     if digits.startswith(("5", "6", "9")):
         return "SH"
     if digits.startswith(("4", "8")):
         return "BJ"
     return "SZ"
-

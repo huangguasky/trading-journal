@@ -11,19 +11,24 @@ from engine.time_utils import today_cn
 
 @dataclass
 class NewsBundle:
+    """News items paired with provenance and quality metadata."""
     items: list[dict[str, Any]]
     quality: dict[str, Any]
 
 
 class NewsData:
+    """Load real news when configured and deterministic samples otherwise."""
     def __init__(self, news_api_key: str = "", timeout_s: float = 8):
+        """Configure NewsAPI credentials and network timeout."""
         self.news_api_key = news_api_key.strip()
         self.timeout_s = timeout_s
 
     def stock_news(self, symbol: str) -> list[dict]:
+        """Return only the news items for a stock symbol."""
         return self.stock_news_bundle(symbol).items
 
     def stock_news_bundle(self, symbol: str) -> NewsBundle:
+        """Return stock news with fallback attempts and quality metadata."""
         attempts = []
         if self.news_api_key:
             try:
@@ -45,9 +50,11 @@ class NewsData:
         )
 
     def market_news(self, market: str) -> list[dict]:
+        """Return only the news items for a market."""
         return self.market_news_bundle(market).items
 
     def market_news_bundle(self, market: str) -> NewsBundle:
+        """Return market news with fallback attempts and quality metadata."""
         labels = {"cn": "A股", "hk": "港股", "us": "美股"}
         label = labels.get(market, market)
         attempts = []
@@ -71,6 +78,7 @@ class NewsData:
         )
 
     def _newsapi(self, query: str, language: str = "zh") -> list[dict[str, Any]]:
+        """Request and normalize recent articles from NewsAPI."""
         params = urllib.parse.urlencode({"q": query, "language": language, "pageSize": 5, "sortBy": "publishedAt", "apiKey": self.news_api_key})
         with urllib.request.urlopen(f"https://newsapi.org/v2/everything?{params}", timeout=self.timeout_s) as response:
             payload = json.loads(response.read().decode("utf-8"))
@@ -87,4 +95,5 @@ class NewsData:
 
 
 def quality(source: str, status: str, confidence: str, attempts: list[dict[str, str]], notes: list[str] | None = None) -> dict[str, Any]:
+    """Build the common source-quality payload used by news responses."""
     return {"source": source, "status": status, "confidence": confidence, "attempts": attempts, "notes": notes or []}

@@ -22,12 +22,15 @@ db = Database(settings.db_path)
 
 
 class Handler(BaseHTTPRequestHandler):
+    """Serve the local JSON API consumed by the desktop application."""
     server_version = "TradingJournalEngine/0.2"
 
     def do_OPTIONS(self) -> None:
+        """Answer CORS preflight requests."""
         self.send_json({"ok": True})
 
     def do_GET(self) -> None:
+        """Route read-only API requests and serialize failures as JSON."""
         path = urlparse(self.path).path
         query = parse_qs(urlparse(self.path).query)
         try:
@@ -50,6 +53,7 @@ class Handler(BaseHTTPRequestHandler):
             self.send_json({"error": str(exc)}, 500)
 
     def do_POST(self) -> None:
+        """Route state-changing and analysis API requests."""
         path = urlparse(self.path).path
         body = self.read_json()
         try:
@@ -74,12 +78,14 @@ class Handler(BaseHTTPRequestHandler):
             self.send_json({"error": str(exc)}, 500)
 
     def read_json(self) -> dict[str, Any]:
+        """Decode the request body as a JSON object, or return an empty object."""
         length = int(self.headers.get("Content-Length", "0") or 0)
         if length == 0:
             return {}
         return json.loads(self.rfile.read(length).decode("utf-8"))
 
     def send_json(self, payload: Any, status: int = 200) -> None:
+        """Send a UTF-8 JSON response with permissive local CORS headers."""
         raw = json.dumps(payload, ensure_ascii=False, default=str).encode("utf-8")
         self.send_response(status)
         self.send_header("Content-Type", "application/json; charset=utf-8")
@@ -91,10 +97,12 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(raw)
 
     def log_message(self, format: str, *args: Any) -> None:
+        """Suppress the standard library's per-request console logging."""
         return
 
 
 def build_dashboard() -> dict:
+    """Assemble recent reports, tracking state, and risk alerts for the dashboard."""
     reports = db.list_reports(limit=8)
     tracking = TrackingService(db).snapshot()
     latest_market = next((item for item in reports if item["kind"] == "market"), None)
@@ -107,6 +115,7 @@ def build_dashboard() -> dict:
 
 
 def build_stock_pipeline() -> StockPipeline:
+    """Create a stock pipeline using provider settings persisted in the database."""
     values = db.get_system_settings()
     market_data = MarketData(
         provider_order=resolve_provider_order(values),
@@ -118,6 +127,7 @@ def build_stock_pipeline() -> StockPipeline:
 
 
 def build_market_pipeline() -> MarketPipeline:
+    """Create a market pipeline using provider settings persisted in the database."""
     values = db.get_system_settings()
     market_data = MarketData(
         provider_order=resolve_provider_order(values),
@@ -129,6 +139,7 @@ def build_market_pipeline() -> MarketPipeline:
 
 
 def provider_keys(values: dict[str, str]) -> dict[str, str]:
+    """Extract market-provider credentials from persisted settings."""
     return {
         "tushare_token": values.get("tushare_token", ""),
         "alpha_vantage_key": values.get("alpha_vantage_key", ""),
@@ -136,6 +147,7 @@ def provider_keys(values: dict[str, str]) -> dict[str, str]:
 
 
 def resolve_provider_order(values: dict[str, str]) -> str:
+    """Resolve an explicit provider choice or fall back to the configured order."""
     selected = (values.get("data_provider") or "auto").strip().lower()
     if selected and selected != "auto":
         return selected
@@ -143,6 +155,7 @@ def resolve_provider_order(values: dict[str, str]) -> str:
 
 
 def effective_settings():
+    """Merge environment defaults with mutable database-backed LLM settings."""
     values = db.get_system_settings()
     llm_enabled = values.get("llm_enabled") == "true"
     api_key = values.get("openai_api_key") or settings.llm_api_key or ""
@@ -157,10 +170,12 @@ def effective_settings():
 
 
 def is_llm_ready(values: dict[str, str]) -> bool:
+    """Return whether LLM use is enabled and has a non-empty API key."""
     return values.get("llm_enabled") == "true" and bool(values.get("openai_api_key", "").strip())
 
 
 def parse_float(value: str | None, fallback: float) -> float:
+    """Parse a float setting, returning the fallback for missing or invalid input."""
     try:
         return float(value) if value is not None else fallback
     except ValueError:
@@ -168,6 +183,7 @@ def parse_float(value: str | None, fallback: float) -> float:
 
 
 def parse_int(value: str | None, fallback: int) -> int:
+    """Parse an integer setting, returning the fallback for missing or invalid input."""
     try:
         return int(value) if value is not None else fallback
     except ValueError:
@@ -175,6 +191,7 @@ def parse_int(value: str | None, fallback: int) -> int:
 
 
 def main() -> None:
+    """Start the threaded local HTTP server and serve until interrupted."""
     server = ThreadingHTTPServer((settings.host, settings.port), Handler)
     print(f"Trading Journal Engine listening on http://{settings.host}:{settings.port}")
     server.serve_forever()

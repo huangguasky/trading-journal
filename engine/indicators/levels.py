@@ -2,6 +2,7 @@ from engine.data.market_data import Bar
 
 
 def levels_indicators(bars: list[Bar]) -> dict:
+    """Calculate support, resistance, ATR, and range-position levels."""
     close = bars[-1].close
     lows = [bar.low for bar in bars]
     highs = [bar.high for bar in bars]
@@ -22,4 +23,3 @@ def levels_indicators(bars: list[Bar]) -> dict:
         "high_52w": round(max(highs[-250:]), 3),
         "low_52w": round(min(lows[-250:]), 3),
     }
-

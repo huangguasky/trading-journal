@@ -15,7 +15,9 @@ from .tracking import TrackingService
 
 
 class StockPipeline:
+    """Coordinate stock data, indicators, strategies, reporting, and persistence."""
     def __init__(self, db: Database, market_data: MarketData | None = None, news_data: NewsData | None = None, strategies: StrategyRegistry | None = None):
+        """Initialize the pipeline with injectable services for testing or customization."""
         self.db = db
         self.market_data = market_data or MarketData()
         self.news_data = news_data or NewsData()
@@ -23,6 +25,7 @@ class StockPipeline:
         self.tracking = TrackingService(db, self.market_data)
 
     def analyze(self, code: str, save: bool = True) -> dict:
+        """Analyze one stock and optionally save its report and tracking task."""
         symbol = normalize_symbol(code)
         history_bundle = self.market_data.history_bundle(symbol)
         quote = quote_from_history(symbol, history_bundle)
@@ -55,6 +58,7 @@ class StockPipeline:
         return report
 
     def analyze_watchlist(self, symbols: list[str], save: bool = True) -> dict:
+        """Analyze each watchlist symbol and summarize resulting risk alerts."""
         self.db.upsert_watchlist(symbols)
         items = [self.analyze(symbol, save=save) for symbol in symbols]
         return {
@@ -65,10 +69,12 @@ class StockPipeline:
 
 
 def risk_alert(report: dict) -> dict:
+    """Extract a compact risk-alert view from a full stock report."""
     return {"symbol": report["symbol"], "score": report["score"], "top_risk": report["risk_flags"][0]}
 
 
 def quality_to_dict(quality) -> dict:
+    """Serialize history quality metadata for the stock report payload."""
     return {
         "source": quality.source,
         "status": quality.status,
@@ -79,6 +85,7 @@ def quality_to_dict(quality) -> dict:
 
 
 def quote_from_history(symbol, history_bundle) -> dict:
+    """Derive a quote dictionary from the last two normalized history bars."""
     bars = history_bundle.bars
     last = bars[-1]
     prev = bars[-2]

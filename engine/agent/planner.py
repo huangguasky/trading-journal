@@ -6,6 +6,7 @@ from engine.data.normalize import normalize_symbol
 
 
 def parse_intent(message: str) -> dict:
+    """Infer requested analysis intent, symbols, and market from free-form text."""
     text = message.strip()
     symbols = extract_symbols(text)
     lower = text.lower()
@@ -19,6 +20,7 @@ def parse_intent(message: str) -> dict:
 
 
 def extract_symbols(text: str) -> list[str]:
+    """Extract and normalize distinct stock symbols mentioned in text."""
     pattern = r"\bHK\d{1,5}\b|\b\d{6}\b|\b[A-Z]{1,5}(?:\.[A-Z]{1,3})?\b"
     raw = re.findall(pattern, text.upper())
     ignored = {"A", "HK", "US", "CN", "ETF", "RSI", "MACD", "MA"}
@@ -33,9 +35,9 @@ def extract_symbols(text: str) -> list[str]:
 
 
 def detect_market(text: str) -> str:
+    """Detect a CN, HK, or US market hint, defaulting to CN."""
     if "港" in text or "hk" in text:
         return "hk"
     if "美" in text or "us" in text or "nasdaq" in text:
         return "us"
     return "cn"
-

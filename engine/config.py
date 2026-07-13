@@ -12,6 +12,7 @@ DB_PATH = DATA_DIR / "trading_journal.sqlite3"
 
 @dataclass(frozen=True)
 class Settings:
+    """Runtime configuration loaded from environment variables."""
     host: str = "127.0.0.1"
     port: int = 8765
     db_path: Path = DB_PATH
@@ -24,7 +25,7 @@ class Settings:
 
 
 def get_settings() -> Settings:
+    """Build application settings from the current process environment."""
     settings = Settings()
     settings.data_dir.mkdir(parents=True, exist_ok=True)
     return settings
-

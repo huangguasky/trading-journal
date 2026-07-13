@@ -2,6 +2,7 @@ from engine.data.market_data import Bar
 
 
 def ema(values: list[float], span: int) -> list[float]:
+    """Calculate an exponential moving-average series."""
     alpha = 2 / (span + 1)
     out = [values[0]]
     for value in values[1:]:
@@ -10,6 +11,7 @@ def ema(values: list[float], span: int) -> list[float]:
 
 
 def rsi(values: list[float], window: int = 14) -> float:
+    """Calculate the latest relative strength index value."""
     gains: list[float] = []
     losses: list[float] = []
     for left, right in zip(values[-window - 1 : -1], values[-window:]):
@@ -24,6 +26,7 @@ def rsi(values: list[float], window: int = 14) -> float:
 
 
 def momentum_indicators(bars: list[Bar]) -> dict:
+    """Calculate RSI, MACD, and recent return momentum indicators."""
     closes = [bar.close for bar in bars]
     fast = ema(closes, 12)
     slow = ema(closes, 26)
@@ -36,4 +39,3 @@ def momentum_indicators(bars: list[Bar]) -> dict:
         "macd_hist": round(macd_line[-1] - signal[-1], 4),
         "return_20d_pct": round((closes[-1] / closes[-20] - 1) * 100, 2),
     }
-

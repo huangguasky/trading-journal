@@ -4,6 +4,7 @@ from engine.time_utils import today_cn
 
 
 def build_stock_report(payload: dict) -> tuple[dict, str]:
+    """Turn a stock-analysis payload into a structured report and Markdown."""
     indicators = payload["indicators"]
     strategies = payload["strategies"]
     quote = payload["quote"]
@@ -43,6 +44,7 @@ def build_stock_report(payload: dict) -> tuple[dict, str]:
 
 
 def build_market_report(payload: dict) -> tuple[dict, str]:
+    """Turn a market-analysis payload into a structured report and Markdown."""
     report = {
         "market": payload["market"],
         "date": today_cn(),
@@ -62,6 +64,7 @@ def build_market_report(payload: dict) -> tuple[dict, str]:
 
 
 def score_stock(strategies: list[dict], indicators: dict, data_quality: dict) -> float:
+    """Calculate a bounded stock score with strategy, trend, and quality adjustments."""
     strategy_score = sum(item["score"] for item in strategies) / max(1, len(strategies))
     trend_bonus = 4 if indicators["trend"]["above_ma60"] else -5
     volume_bonus = 3 if indicators["volume"]["volume_ratio_5_20"] >= 1 else -2
@@ -71,6 +74,7 @@ def score_stock(strategies: list[dict], indicators: dict, data_quality: dict) ->
 
 
 def build_operation_plan(quote: dict, indicators: dict, score: float, strategies: list[dict]) -> dict:
+    """Derive action, position, entry, target, and stop guidance from analysis."""
     support = indicators["levels"]["support_20d"]
     resistance = indicators["levels"]["resistance_20d"]
     atr_pct = indicators["levels"]["atr_pct"]
@@ -93,6 +97,7 @@ def build_operation_plan(quote: dict, indicators: dict, score: float, strategies
 
 
 def rating_for_score(score: float) -> str:
+    """Map a numeric stock score to its qualitative rating."""
     if score >= 78:
         return "强势关注"
     if score >= 62:
@@ -103,6 +108,7 @@ def rating_for_score(score: float) -> str:
 
 
 def action_for(score: float, indicators: dict, evidence: dict) -> str:
+    """Choose an action while accounting for score, trend, and evidence conflicts."""
     if evidence.get("conflicts") and score < 70:
         return "有机会但证据不完整，等待确认优先"
     if score >= 75 and indicators["levels"]["atr_pct"] <= 4.5:
@@ -115,6 +121,7 @@ def action_for(score: float, indicators: dict, evidence: dict) -> str:
 
 
 def position_hint(score: float, atr_pct: float) -> str:
+    """Suggest position size from conviction and ATR-based volatility."""
     if score < 50:
         return "观望或极轻仓"
     if atr_pct >= 6:
@@ -125,6 +132,7 @@ def position_hint(score: float, atr_pct: float) -> str:
 
 
 def risk_flags(indicators: dict, conflicts: list[str], strategies: list[dict]) -> list[str]:
+    """Collect technical, evidence, and strategy risks for the report."""
     flags = list(conflicts)
     for strategy in strategies:
         flags.extend(strategy.get("risks", [])[:2])
@@ -138,6 +146,7 @@ def risk_flags(indicators: dict, conflicts: list[str], strategies: list[dict]) -
 
 
 def render_stock_markdown(report: dict) -> str:
+    """Render a structured stock report as user-facing Markdown."""
     plan = report["operation_plan"]
     strategies = "\n".join(format_strategy_line(item) for item in report["selected_strategies"])
     support_strategies = "\n".join(format_strategy_line(item) for item in report["strategies"][len(report["selected_strategies"]):len(report["selected_strategies"]) + 4])
@@ -186,6 +195,7 @@ def render_stock_markdown(report: dict) -> str:
 
 
 def render_market_markdown(report: dict) -> str:
+    """Render a structured market report as user-facing Markdown."""
     indices = "\n".join(f"- {item['symbol']}: {item['price']}（{item['change_pct']}%）" for item in report["indices"])
     leaders = "、".join(report["sector_rotation"]["leaders"])
     laggards = "、".join(report["sector_rotation"]["laggards"])
@@ -232,11 +242,13 @@ def render_market_markdown(report: dict) -> str:
 
 
 def format_strategy_line(strategy: dict) -> str:
+    """Format one strategy result for inclusion in Markdown."""
     evidence = "；".join(strategy.get("evidence", [])[:2]) or "暂无明确证据"
     return f"- {strategy.get('name')}：{strategy.get('score')}/100（{stance_label(strategy.get('stance', ''))}），{evidence}"
 
 
 def render_quality(data_quality: dict) -> str:
+    """Render data provenance and fallback notes as a readable sentence."""
     if not data_quality:
         return "- 未记录数据质量。"
     lines: list[str] = []
@@ -251,20 +263,25 @@ def render_quality(data_quality: dict) -> str:
 
 
 def quality_label(value: str) -> str:
+    """Translate a data-quality code into a user-facing label."""
     return {"history": "K线", "price": "行情", "news": "资讯", "market": "市场快照"}.get(value, value)
 
 
 def stance_label(value: str) -> str:
+    """Translate a strategy stance code into a user-facing label."""
     return {"positive": "偏多", "neutral": "中性", "negative": "偏空"}.get(value, value)
 
 
 def market_label(value: str) -> str:
+    """Translate a market code into a user-facing label."""
     return {"cn": "A股", "hk": "港股", "us": "美股"}.get(value, value.upper())
 
 
 def market_regime_label(value: str) -> str:
+    """Translate a market-regime code into a user-facing label."""
     return {"risk_on": "风险偏好升温", "neutral": "震荡均衡", "risk_off": "防御优先", "volatile": "高波动震荡"}.get(value, value)
 
 
 def strategy_bias_label(value: str) -> str:
+    """Translate a strategy-bias code into a user-facing label."""
     return {"trend": "趋势跟随", "defensive": "防御优先", "wait": "等待确认", "event": "事件驱动"}.get(value, value)

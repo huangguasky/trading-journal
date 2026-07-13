@@ -10,18 +10,23 @@ BUILTIN_DIR = Path(__file__).resolve().parent / "builtin"
 
 
 class StrategyRegistry:
+    """Load builtin strategy definitions and evaluate them for analyses."""
     def __init__(self, strategy_dir: Path = BUILTIN_DIR):
+        """Load strategy definitions from the configured directory."""
         self.strategy_dir = strategy_dir
         self._items = self._load()
 
     def all(self) -> list[StrategyDefinition]:
+        """Return all registered strategy definitions."""
         return list(self._items.values())
 
     def select_for_stock(self, indicators: dict, news: list[dict]) -> list[StrategyResult]:
+        """Evaluate every strategy and rank results by absolute conviction."""
         results = [evaluate_strategy(item, indicators, news) for item in self.all()]
         return sorted(results, key=lambda item: item.score, reverse=True)
 
     def select_market_bias(self, market_snapshot: dict, news: list[dict]) -> str:
+        """Choose a market bias from breadth, trend, and negative-news pressure."""
         breadth = market_snapshot.get("breadth", {})
         advancers = breadth.get("advancers", 0)
         decliners = breadth.get("decliners", 1)
@@ -35,6 +40,7 @@ class StrategyRegistry:
         return "wait"
 
     def _load(self) -> dict[str, StrategyDefinition]:
+        """Parse all builtin YAML files into strategy definitions keyed by ID."""
         items: dict[str, StrategyDefinition] = {}
         for path in sorted(self.strategy_dir.glob("*.yaml")):
             payload = parse_yaml_lite(path.read_text(encoding="utf-8"))
@@ -51,6 +57,7 @@ class StrategyRegistry:
 
 
 def evaluate_strategy(definition: StrategyDefinition, indicators: dict, news: list[dict]) -> StrategyResult:
+    """Evaluate one strategy's rules and collect matched evidence and risks."""
     score = 45.0
     evidence: list[str] = []
     risks: list[str] = []
@@ -69,6 +76,8 @@ def evaluate_strategy(definition: StrategyDefinition, indicators: dict, news: li
             score += weight
             evidence.append(str(rule.get("evidence", f"{metric} {op} {expected}")))
         else:
+            # A failed positive rule reduces conviction only partially; this
+            # avoids treating missing confirmation as a full bearish signal.
             score -= max(0, weight * 0.35)
             if rule.get("risk"):
                 risks.append(str(rule["risk"]))
@@ -81,6 +90,7 @@ def evaluate_strategy(definition: StrategyDefinition, indicators: dict, news: li
 
 
 def flatten_indicators(indicators: dict) -> dict[str, Any]:
+    """Flatten nested indicator groups for declarative rule lookup."""
     out: dict[str, Any] = {}
     for group, values in indicators.items():
         if isinstance(values, dict):
@@ -90,6 +100,7 @@ def flatten_indicators(indicators: dict) -> dict[str, Any]:
 
 
 def compare(actual: Any, op: str, expected: Any) -> bool:
+    """Apply a supported declarative comparison operator safely."""
     if op == "truthy":
         return bool(actual)
     if op == "falsy":
@@ -110,6 +121,7 @@ def compare(actual: Any, op: str, expected: Any) -> bool:
 
 
 def parse_yaml_lite(text: str) -> dict[str, Any]:
+    """Parse the limited YAML subset used by bundled strategy definitions."""
     payload: dict[str, Any] = {}
     current_list: list[Any] | None = None
     current_item: dict[str, Any] | None = None
@@ -152,6 +164,7 @@ def parse_yaml_lite(text: str) -> dict[str, Any]:
 
 
 def parse_scalar(value: str) -> Any:
+    """Convert a YAML-like scalar into a bool, number, string, or list."""
     value = value.strip().strip('"').strip("'")
     if value.startswith("[") and value.endswith("]"):
         inner = value[1:-1].strip()
