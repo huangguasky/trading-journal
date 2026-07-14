@@ -45,7 +45,7 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_json({"items": db.list_watchlist()})
             elif path == "/tracking":
                 symbol = query.get("symbol", [None])[0]
-                self.send_json({"items": TrackingService(db).snapshot(symbol)})
+                self.send_json({"items": TrackingService(db, build_market_data(db.get_system_settings())).snapshot(symbol)})
             elif path == "/strategies":
                 self.send_json({"items": [item.__dict__ for item in StrategyRegistry().all()]})
             elif path == "/dashboard":
@@ -82,7 +82,12 @@ class Handler(BaseHTTPRequestHandler):
             elif path == "/analyze/market":
                 self.send_json(build_market_pipeline().analyze(body.get("market", "cn"), save=bool(body.get("save", True))))
             elif path == "/chat":
-                result = run_agent_loop(str(body.get("message", "")), ToolRegistry(db, effective_settings().tool_timeout_s), effective_settings())
+                values = db.get_system_settings()
+                runtime_settings = effective_settings(values)
+                result = run_agent_loop(str(body.get("message", "")), ToolRegistry(
+                    db, runtime_settings.tool_timeout_s,
+                    market_data=build_market_data(values), news_data=build_news_data(values),
+                ), runtime_settings)
                 self.send_json(result.__dict__)
             elif path == "/watchlist":
                 db.upsert_watchlist(list(body.get("symbols", [])))
@@ -122,7 +127,7 @@ class Handler(BaseHTTPRequestHandler):
 def build_dashboard() -> dict:
     """Assemble recent reports, tracking state, and risk alerts for the dashboard."""
     reports = db.list_reports(limit=8)
-    tracking = TrackingService(db).snapshot()
+    tracking = TrackingService(db, build_market_data(db.get_system_settings())).snapshot()
     latest_market = next((item for item in reports if item["kind"] == "market"), None)
     return {
         "market": latest_market,
@@ -135,11 +140,7 @@ def build_dashboard() -> dict:
 def build_stock_pipeline() -> StockPipeline:
     """Create a stock pipeline using provider settings persisted in the database."""
     values = db.get_system_settings()
-    market_data = MarketData(
-        provider_order=resolve_provider_order(values),
-        api_keys=provider_keys(values),
-        timeout_s=parse_float(values.get("tool_timeout_s"), settings.tool_timeout_s),
-    )
+    market_data = build_market_data(values)
     news_data = build_news_data(values)
     return StockPipeline(
         db,
@@ -152,11 +153,7 @@ def build_stock_pipeline() -> StockPipeline:
 def build_market_pipeline() -> MarketPipeline:
     """Create a market pipeline using provider settings persisted in the database."""
     values = db.get_system_settings()
-    market_data = MarketData(
-        provider_order=resolve_provider_order(values),
-        api_keys=provider_keys(values),
-        timeout_s=parse_float(values.get("tool_timeout_s"), settings.tool_timeout_s),
-    )
+    market_data = build_market_data(values)
     news_data = build_news_data(values)
     return MarketPipeline(db, market_data=market_data, news_data=news_data)
 
@@ -180,32 +177,28 @@ def build_news_data(values: dict[str, str]) -> NewsData:
     )
 
 
-def resolve_provider_order(values: dict[str, str]) -> str:
-    """Resolve an explicit provider choice or fall back to the configured order."""
-    selected = (values.get("data_provider") or "auto").strip().lower()
-    if selected and selected != "auto":
-        return selected
-    return values.get("data_provider_order") or "auto"
+def build_market_data(values: dict[str, str]) -> MarketData:
+    """Build the fixed capability-ordered market source chain from saved settings."""
+    return MarketData("auto", provider_keys(values), parse_float(values.get("tool_timeout_s"), settings.tool_timeout_s))
 
 
-def effective_settings():
-    """Merge environment defaults with mutable database-backed LLM settings."""
-    values = db.get_system_settings()
-    llm_enabled = values.get("llm_enabled") == "true"
-    api_key = values.get("openai_api_key") or settings.llm_api_key or ""
+def effective_settings(values: dict[str, str] | None = None):
+    """Apply only database-backed LLM and execution settings."""
+    values = values or db.get_system_settings()
+    api_key = values.get("openai_api_key", "")
     return replace(
         settings,
-        llm_api_key=api_key if llm_enabled and api_key else None,
-        llm_base_url=values.get("openai_base_url") or settings.llm_base_url,
-        llm_model=values.get("openai_model") or settings.llm_model,
+        llm_api_key=api_key or None,
+        llm_base_url=values.get("openai_base_url") or None,
+        llm_model=values.get("openai_model") or "gpt-4o-mini",
         tool_timeout_s=parse_float(values.get("tool_timeout_s"), settings.tool_timeout_s),
         agent_max_steps=parse_int(values.get("agent_max_steps"), settings.agent_max_steps),
     )
 
 
 def is_llm_ready(values: dict[str, str]) -> bool:
-    """Return whether LLM use is enabled and has a non-empty API key."""
-    return values.get("llm_enabled") == "true" and bool(values.get("openai_api_key", "").strip())
+    """Return whether an LLM is configured; calls still validate it at use time."""
+    return bool(values.get("openai_api_key", "").strip())
 
 
 def parse_float(value: str | None, fallback: float) -> float:

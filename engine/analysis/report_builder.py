@@ -190,8 +190,8 @@ def build_decision_limits(data_quality: dict, market_context: dict | None = None
     """Return hard decision constraints caused by missing critical inputs."""
     limits: list[str] = []
     history = data_quality.get("history") or {}
-    if history.get("confidence") == "low" or history.get("source") == "sample":
-        limits.append("行情为低置信度或演示样本，禁止输出主动买入建议。")
+    if history.get("confidence") == "low" or history.get("status") == "unavailable":
+        limits.append("真实行情缺失或置信度过低，禁止输出主动买入建议。")
     if (data_quality.get("realtime") or {}).get("status") not in {"ok", "partial"}:
         limits.append("缺少实时行情，入场价、止损价和目标价须在交易前重新核对。")
     if (data_quality.get("news") or {}).get("status") not in {"ok", "partial"}:

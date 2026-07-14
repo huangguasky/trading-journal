@@ -55,6 +55,8 @@ class MarketPipeline:
 def market_score(snapshot: dict) -> float:
     """Calculate a bounded market score from trend, breadth, and index changes."""
     index_scores = [50 + item["change_pct"] * 8 for item in snapshot["indices"]]
+    if not index_scores:
+        return 0.0
     breadth = snapshot["breadth"]
     breadth_score = breadth["advancers"] / max(1, breadth["advancers"] + breadth["decliners"]) * 100
     limit_score = 50
@@ -69,7 +71,7 @@ def market_score(snapshot: dict) -> float:
 
 def regime_for_score(score: float, snapshot: dict) -> str:
     """Classify the market regime from score and breadth conditions."""
-    turnover = snapshot["breadth"].get("turnover_billion", 0)
+    turnover = snapshot["breadth"].get("turnover_billion") or 0
     decliners = snapshot["breadth"].get("decliners", 0)
     advancers = snapshot["breadth"].get("advancers", 0)
     if score >= 66 and advancers > decliners:
@@ -91,7 +93,7 @@ def build_market_context(market: str, snapshot: dict, score: float) -> dict:
         "market": market,
         "advancer_ratio": adv_ratio,
         "sentiment": sentiment,
-        "liquidity": "活跃" if breadth.get("turnover_billion", 0) >= 650 else "普通",
+        "liquidity": "活跃" if (breadth.get("turnover_billion") or 0) >= 650 else "普通",
         "leader_count": len(snapshot["sector_rotation"]["leaders"]),
         "watch_assets": snapshot.get("watch_assets", []),
     }
@@ -177,6 +179,10 @@ def market_risks(score: float, snapshot: dict, news_quality: dict) -> list[str]:
 def tomorrow_watch(market: str, snapshot: dict, context: dict) -> list[str]:
     """Build the next-session checklist from the current market context."""
     leaders = snapshot["sector_rotation"]["leaders"]
+    if not snapshot.get("indices"):
+        notes = snapshot.get("data_quality", {}).get("items", [])
+        failed = [attempt for item in notes for attempt in item.get("attempts", [])]
+        return ["请先在设置页配置可用的数据源。", *[f"{item.get('provider')}: {item.get('message')}" for item in failed[:6]]]
     return [
         f"确认领先方向是否延续：{'、'.join(leaders[:3])}",
         f"观察上涨家数占比是否继续改善，当前约 {context['advancer_ratio']}%。",
@@ -187,7 +193,8 @@ def tomorrow_watch(market: str, snapshot: dict, context: dict) -> list[str]:
 def merge_market_quality(snapshot_quality: dict, news_quality: dict) -> dict:
     """Merge market-price and news provenance into one quality assessment."""
     confidence = "low" if snapshot_quality.get("confidence") == "low" or news_quality.get("confidence") == "low" else "medium"
-    status = "fallback" if snapshot_quality.get("status") == "fallback" or news_quality.get("status") == "fallback" else "ok"
+    statuses = {snapshot_quality.get("status"), news_quality.get("status")}
+    status = "unavailable" if statuses == {"unavailable"} else "partial" if "unavailable" in statuses else "ok"
     return {
         "source": ",".join(snapshot_quality.get("sources", [])) or "mixed",
         "status": status,

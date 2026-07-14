@@ -9,11 +9,11 @@ def test_stock_pipeline_creates_structured_report(tmp_path):
     report = StockPipeline(Database(tmp_path / "test.db")).analyze("600519")
     assert report["type"] == "stock_report"
     assert report["symbol"] == "SH600519"
-    assert report["score"] > 0
-    assert report["tracking_task_id"] > 0
-    assert "operation_plan" in report
+    assert report["score"] == 0
+    assert "tracking_task_id" not in report
+    assert report["operation_plan"]["position"] == "观望"
     assert report["confidence"]["level"] == "low"
-    assert report["action"].startswith("数据不足")
+    assert "无法生成交易判断" in report["action"]
     assert report["news"] == []
     assert report["decision_limits"]
 
@@ -21,10 +21,11 @@ def test_stock_pipeline_creates_structured_report(tmp_path):
 def test_stock_pipeline_consumes_optional_enrichment(tmp_path):
     class FakeMarketData:
         def history_bundle(self, symbol):
-            from engine.data.market_data import DataQuality, HistoryBundle, ProviderAttempt, sample_history
+            from engine.data.market_data import Bar, DataQuality, HistoryBundle, ProviderAttempt
 
             quality = DataQuality("fixture", "ok", "high", [ProviderAttempt("fixture", "ok")], [])
-            return HistoryBundle(sample_history(symbol), quality)
+            bars = [Bar(f"2026-01-{index + 1:02d}", 100 + index, 102 + index, 99 + index, 101 + index, 1000 + index) for index in range(60)]
+            return HistoryBundle(bars, quality)
 
     class FakeNewsData:
         def stock_news_bundle(self, symbol):
@@ -89,9 +90,9 @@ def test_market_pipeline_schema(tmp_path):
     assert isinstance(report["indices"], list)
     assert "sector_rotation" in report
     assert "strategy_bias" in report
-    assert report["market_dimensions"]["index_alignment"]["available"] is True
-    assert report["market_dimensions"]["breadth"]["is_estimated"] is True
+    assert report["market_dimensions"]["index_alignment"]["available"] is False
+    assert report["market_dimensions"]["breadth"]["is_estimated"] is False
     assert report["trading_plan"]["stance"] in {"进攻", "均衡", "防守"}
     assert report["trading_plan"]["position_range"]
     assert "失效条件" in report["markdown"]
-    assert "代表性资产估算" in report["markdown"]
+    assert report["data_quality"]["status"] == "unavailable"

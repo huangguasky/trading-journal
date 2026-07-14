@@ -21,7 +21,11 @@ class TrackingService:
         rows = self.db.list_tracking(symbol)
         out = []
         for row in rows:
-            quote = self.market_data.quote(row["symbol"])
+            try:
+                quote = self.market_data.quote(row["symbol"])
+            except ValueError as exc:
+                out.append({**row, "current_price": None, "pnl_pct": None, "computed_status": "data_unavailable", "data_note": str(exc)})
+                continue
             pnl = round((quote.price / row["base_price"] - 1) * 100, 2) if row["base_price"] else 0
             status = "open"
             if row["target_price"] and quote.price >= row["target_price"]:

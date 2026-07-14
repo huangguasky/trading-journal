@@ -24,7 +24,7 @@ class NewsBundle:
 
 
 class NewsData:
-    """Load real news when configured and deterministic samples otherwise."""
+    """Load verified real news through a capability-ordered fallback chain."""
     def __init__(self, news_api_key: str = "", timeout_s: float = 8, tavily_api_key: str = "", brave_api_key: str = "", social_enabled: bool = True):
         """Configure NewsAPI credentials and network timeout."""
         self.news_api_key = news_api_key.strip()
@@ -40,35 +40,31 @@ class NewsData:
     def stock_news_bundle(self, symbol: str) -> NewsBundle:
         """Return stock news with fallback attempts and quality metadata."""
         attempts = []
-        collected: list[dict[str, Any]] = []
-        if self.news_api_key:
-            try:
-                items = self._newsapi(f"{symbol} stock", language="zh")
-                if items:
-                    collected.extend(items)
-                    attempts.append({"provider": "newsapi", "status": "ok", "message": f"取得 {len(items)} 条新闻"})
-                attempts.append({"provider": "newsapi", "status": "empty", "message": "未返回相关新闻"})
-            except Exception as exc:
-                attempts.append({"provider": "newsapi", "status": "failed", "message": str(exc)[:160]})
-        else:
-            attempts.append({"provider": "newsapi", "status": "skipped", "message": "未配置 NewsAPI Key"})
-
-        for provider, loader in (("tavily", self._tavily), ("brave", self._brave), ("yfinance-news", self._yfinance_news), ("exchange-announcement", self._announcements)):
+        providers = [
+            ("exchange-announcement", None, self._announcements),
+            ("newsapi", self.news_api_key, lambda value: self._newsapi(f"{value} stock", language="zh")),
+            ("tavily", self.tavily_api_key, self._tavily),
+            ("brave", self.brave_api_key, self._brave),
+            ("yfinance-news", None, self._yfinance_news),
+        ]
+        for provider, credential, loader in providers:
+            if provider in {"newsapi", "tavily", "brave"} and not credential:
+                attempts.append({"provider": provider, "status": "not_configured", "message": f"请在设置页填写 {provider} Key"})
+                continue
             try:
                 items = loader(symbol)
-                collected.extend(items)
-                attempts.append({"provider": provider, "status": "ok" if items else "empty", "message": f"取得 {len(items)} 条"})
+                if items:
+                    normalized = deduplicate_articles(items)[:20]
+                    attempts.append({"provider": provider, "status": "ok", "message": f"取得 {len(normalized)} 条"})
+                    confidence = "high" if provider == "exchange-announcement" else "medium"
+                    return NewsBundle(normalized, quality(provider, "ok", confidence, attempts))
+                attempts.append({"provider": provider, "status": "empty", "message": "返回为空或格式不正确"})
             except Exception as exc:
                 attempts.append({"provider": provider, "status": "failed", "message": str(exc)[:160]})
 
-        items = deduplicate_articles(collected)[:20]
-        if items:
-            sources = list(dict.fromkeys(item.get("source", "unknown") for item in items))
-            return NewsBundle(items, {"source": ",".join(sources), "sources": sources, "status": "ok", "confidence": "high" if any(item.get("kind") == "announcement" for item in items) else "medium", "attempts": attempts, "notes": []})
-
         return NewsBundle([], quality("none", "unavailable", "low", attempts, [
             "新闻源不可用；未生成虚构资讯。",
-            f"复核清单：检查 {symbol} 的财报、交易所公告、监管风险和行业催化。",
+            f"请在设置页补充新闻源 Key，并检查 {symbol} 的交易所公告、财报和监管信息。",
         ]))
 
     def market_news(self, market: str) -> list[dict]:
@@ -77,8 +73,6 @@ class NewsData:
 
     def market_news_bundle(self, market: str) -> NewsBundle:
         """Return market news with fallback attempts and quality metadata."""
-        labels = {"cn": "A股", "hk": "港股", "us": "美股"}
-        label = labels.get(market, market)
         attempts = []
         if self.news_api_key:
             queries = market_news_queries(market)
@@ -98,13 +92,19 @@ class NewsData:
         else:
             attempts.append({"provider": "newsapi", "status": "skipped", "message": "未配置 NewsAPI Key"})
 
-        return NewsBundle(
-            [
-                {"title": f"{label}市场的流动性与风险偏好仍是核心变量", "source": "local-risk-template", "date": today_cn()},
-                {"title": f"{label}投资者关注宏观利率、政策信号与板块轮动", "source": "local-risk-template", "date": today_cn()},
-            ],
-            quality("local-risk-template", "fallback", "low", attempts, ["新闻源不可用，宏观资讯以复盘核对清单代替。"]),
-        )
+        for provider, credential, loader in (("tavily", self.tavily_api_key, self._tavily), ("brave", self.brave_api_key, self._brave)):
+            if not credential:
+                attempts.append({"provider": provider, "status": "not_configured", "message": f"请在设置页填写 {provider} Key"})
+                continue
+            try:
+                items = deduplicate_news(loader(f"{label_for_market(market)} stock market"))[:8]
+                if items:
+                    attempts.append({"provider": provider, "status": "ok", "message": f"取得 {len(items)} 条新闻"})
+                    return NewsBundle(items, quality(provider, "ok", "medium", attempts))
+                attempts.append({"provider": provider, "status": "empty", "message": "返回为空或格式不正确"})
+            except Exception as exc:
+                attempts.append({"provider": provider, "status": "failed", "message": str(exc)[:160]})
+        return NewsBundle([], quality("none", "unavailable", "low", attempts, ["没有可用的真实新闻源，未生成模板资讯；请在设置页配置新闻源。"] ))
 
     def _newsapi(self, query: str, language: str = "zh") -> list[dict[str, Any]]:
         """Request and normalize recent articles from NewsAPI."""
@@ -240,6 +240,11 @@ def market_news_queries(market: str) -> list[tuple[str, str, str]]:
             ("liquidity_sector", "Wall Street sector rotation OR VIX market breadth", "en"),
         ],
     }.get(market, [("market", f"{market} stock market", "en")])
+
+
+def label_for_market(market: str) -> str:
+    """Return a search label for a normalized market code."""
+    return {"cn": "A股", "hk": "港股", "us": "US"}.get(market, market)
 
 
 def deduplicate_news(items: list[dict[str, Any]]) -> list[dict[str, Any]]:

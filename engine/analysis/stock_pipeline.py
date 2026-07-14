@@ -34,6 +34,8 @@ class StockPipeline:
         started_at = time.monotonic()
         history_started = time.monotonic()
         history_bundle = self.market_data.history_bundle(symbol)
+        if len(history_bundle.bars) < 30:
+            return self._unavailable_report(symbol, history_bundle, save)
         quote = quote_from_history(symbol, history_bundle)
         indicators = compute_indicators(history_bundle.bars)
         diagnostics = {"history_ms": elapsed_ms(history_started)}
@@ -82,6 +84,33 @@ class StockPipeline:
             report_id = self.db.save_report("stock", f"{symbol.display} 个股分析报告", report["score"], report, markdown, symbol.display, symbol.market, report["rating"])
             report["id"] = report_id
             report["tracking_task_id"] = self.tracking.create_for_report(report_id, report)
+        report["markdown"] = markdown
+        return report
+
+    def _unavailable_report(self, symbol, history_bundle, save: bool) -> dict:
+        """Persist an explicit diagnostic report when no real history is usable."""
+        quality = quality_to_dict(history_bundle.quality)
+        attempts = quality.get("attempts", [])
+        details = [f"{item['provider']}: {item.get('message') or item['status']}" for item in attempts]
+        suggestions = quality.get("notes", [])
+        report = {
+            "type": "stock_report", "symbol": symbol.display, "market": symbol.market,
+            "date": __import__("engine.time_utils", fromlist=["today_cn"]).today_cn(),
+            "score": 0, "rating": "数据不足", "action": "未取得真实行情，无法生成交易判断",
+            "confidence": {"level": "low", "reason": "全部真实行情源均不可用。"},
+            "coverage": {"technical": False, "realtime": False, "news": False, "fundamentals": False},
+            "decision_limits": ["缺少真实历史行情，未计算指标、评分、交易计划或追踪任务。", *suggestions],
+            "quote": {"symbol": symbol.display, "market": symbol.market, "name": symbol.display, "price": 0, "change_pct": 0, "currency": {"cn": "CNY", "hk": "HKD", "us": "USD"}[symbol.market], "source": "none"},
+            "evidence": {"data_quality": {"history": quality, "price": quality}}, "strategies": [], "selected_strategies": [],
+            "news": [], "intelligence": {}, "fundamentals": {}, "market_context": {}, "diagnostics": {},
+            "data_quality": {"history": quality, "price": quality},
+            "risk_flags": ["真实行情源缺失，任何价格与趋势判断都不可用。", *details],
+            "operation_plan": {"entry": "请先在设置页完成数据源配置并确认可调用。", "stop": None, "target": None, "position": "观望", "watch_conditions": suggestions},
+            "tracking": {"base_price": None, "target_price": None, "stop_price": None, "review_after_days": 0, "watch_conditions": suggestions},
+        }
+        markdown = "\n".join([f"# {symbol.display} 数据不足报告", "", "未取得任何可验证的真实行情，因此未生成交易结论。", "", "## 数据源诊断", *[f"- {item}" for item in details], "", "## 建议", *[f"- {item}" for item in suggestions]])
+        if save:
+            report["id"] = self.db.save_report("stock", f"{symbol.display} 数据不足报告", 0, report, markdown, symbol.display, symbol.market, "数据不足")
         report["markdown"] = markdown
         return report
 

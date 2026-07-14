@@ -18,12 +18,12 @@ from .reports import ReportTools
 class ToolRegistry:
     """Register and safely dispatch the analysis tools available to the agent."""
 
-    def __init__(self, db: Database, tool_timeout_s: float = 8):
+    def __init__(self, db: Database, tool_timeout_s: float = 8, market_data: MarketData | None = None, news_data: NewsData | None = None):
         """Initialize shared services, domain handlers, and the tool lookup table."""
         self.db = db
         self.timeout_s = tool_timeout_s
-        self.market_data = MarketData()
-        self.news_data = NewsData()
+        self.market_data = market_data or MarketData()
+        self.news_data = news_data or NewsData()
         self.market = MarketTools(db, self.market_data, self.news_data)
         self.reports = ReportTools(db, self.market_data, self.news_data)
         self.tools = self._build()
@@ -103,7 +103,7 @@ class ToolRegistry:
             ),
             "search_news": Tool(
                 "search_news",
-                "Search local/synthetic news for a stock or market.",
+                "Search configured real news sources for a stock or market.",
                 {"symbol": "string"},
                 self.market.news,
                 timeout,

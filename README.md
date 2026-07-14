@@ -68,23 +68,29 @@ Chat uses a small ReAct loop because user questions are open-ended. Tools includ
 - Python 3.10 or later installed in the Conda environment named `tj`. Verify it
   with `conda run -n tj python --version`.
 
+Install all providers and the engine together (there are no optional provider extras):
+
+```powershell
+conda run -n tj python -m pip install -e .
+```
+
 Engine only:
 
 ```powershell
-python -m engine.app
+conda run -n tj python -m engine.app
 ```
 
 Command-line analysis:
 
 ```powershell
 # Analyze a single stock
-python -m engine.runtime --stock AAPL
+conda run -n tj python -m engine.runtime --stock AAPL
 
 # Analyze multiple watchlist symbols
-python -m engine.runtime --watchlist AAPL MSFT 600519
+conda run -n tj python -m engine.runtime --watchlist AAPL MSFT 600519
 
 # Analyze a market (cn, hk, or us)
-python -m engine.runtime --market cn
+conda run -n tj python -m engine.runtime --market cn
 ```
 
 The commands print analysis results directly to the terminal. After installing the
@@ -99,18 +105,4 @@ npm install
 npm run tauri:dev
 ```
 
-Optional real market adapters:
-
-```powershell
-pip install -e .[data]
-```
-
-Optional OpenAI-compatible LLM:
-
-```powershell
-$env:OPENAI_API_KEY="..."
-$env:OPENAI_BASE_URL="https://api.openai.com/v1"
-$env:OPENAI_MODEL="gpt-4o-mini"
-```
-
-Without optional dependencies, the engine uses deterministic local sample data so the full research loop remains usable.
+All LLM, market-data and news credentials are managed only on the desktop Settings page. Environment variables are not read. Providers are tried in capability order and validated by their real response; when every source fails, the report lists missing sources and remediation instead of falling back to sample data.

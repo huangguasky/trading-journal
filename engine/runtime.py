@@ -2,8 +2,7 @@ from __future__ import annotations
 
 import argparse
 
-from engine.analysis.market_pipeline import MarketPipeline
-from engine.analysis.stock_pipeline import StockPipeline
+from engine.app import build_market_pipeline, build_stock_pipeline
 from engine.config import get_settings
 from engine.storage.db import Database
 
@@ -18,11 +17,11 @@ def main() -> None:
     settings = get_settings()
     db = Database(settings.db_path)
     if args.stock:
-        print(StockPipeline(db).analyze(args.stock)["markdown"])
+        print(build_stock_pipeline().analyze(args.stock)["markdown"])
     if args.watchlist:
-        print(StockPipeline(db).analyze_watchlist(args.watchlist))
+        print(build_stock_pipeline().analyze_watchlist(args.watchlist))
     if args.market:
-        print(MarketPipeline(db).analyze(args.market)["markdown"])
+        print(build_market_pipeline().analyze(args.market)["markdown"])
 
 
 if __name__ == "__main__":

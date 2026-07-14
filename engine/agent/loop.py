@@ -73,7 +73,8 @@ def synthesize_with_llm(message: str, plan: dict, tool_trace: list[dict], settin
             ],
             temperature=0.2,
         )
-        return response.choices[0].message.content
+        content = response.choices[0].message.content
+        return content.strip() if isinstance(content, str) and content.strip() else None
     except Exception:
         return None
 

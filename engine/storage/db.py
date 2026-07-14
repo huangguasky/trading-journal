@@ -11,12 +11,9 @@ from .migrations import SCHEMA_SQL
 
 
 DEFAULT_SYSTEM_SETTINGS = {
-    "llm_enabled": "false",
     "openai_api_key": "",
     "openai_base_url": "",
     "openai_model": "gpt-4o-mini",
-    "data_provider": "auto",
-    "data_provider_order": "tushare,akshare,yfinance,alpha_vantage,sample",
     "tushare_token": "",
     "alpha_vantage_key": "",
     "news_api_key": "",
@@ -162,6 +159,6 @@ def _inflate_report(row: dict[str, Any]) -> dict[str, Any]:
 
 def normalize_setting_value(key: str, value: Any) -> str:
     """Normalize booleans and scalar setting values for text storage."""
-    if key in {"llm_enabled", "social_sentiment_enabled"}:
+    if key in {"social_sentiment_enabled"}:
         return "true" if value in {True, "true", "1", 1, "on", "yes"} else "false"
     return str(value or "").strip()

@@ -37,12 +37,9 @@ type ReportRecord = {
 };
 
 type SystemSettings = {
-  llm_enabled: string;
   openai_api_key: string;
   openai_base_url: string;
   openai_model: string;
-  data_provider: string;
-  data_provider_order: string;
   tushare_token: string;
   alpha_vantage_key: string;
   news_api_key: string;
@@ -80,12 +77,9 @@ export default function App() {
   const [reportFilter, setReportFilter] = useState('');
   const [engineStatus, setEngineStatus] = useState<'checking' | 'online' | 'offline'>('checking');
   const [systemSettings, setSystemSettings] = useState<SystemSettings>({
-    llm_enabled: 'false',
     openai_api_key: '',
     openai_base_url: '',
     openai_model: 'gpt-4o-mini',
-    data_provider: 'auto',
-    data_provider_order: 'tushare,akshare,yfinance,alpha_vantage,sample',
     tushare_token: '',
     alpha_vantage_key: '',
     news_api_key: '',
@@ -158,7 +152,7 @@ export default function App() {
       const data = await postJson<{ settings: SystemSettings; llm_ready: boolean }>('/settings', systemSettings);
       setSystemSettings(data.settings);
       setLlmReady(data.llm_ready);
-      setSettingsSaved(data.llm_ready ? '已保存，LLM 问股已启用。' : '已保存。填写 Key 并启用 LLM 后，问股会使用模型。');
+      setSettingsSaved(data.llm_ready ? '已保存。问股时会验证 LLM，调用失败将自动使用本地回答。' : '已保存。未配置 LLM Key，将使用本地回答。');
     });
   }
 
@@ -326,15 +320,7 @@ export default function App() {
           <View title="设置" subtitle="模型、数据源、自动任务和策略开关。">
             <Panel title="LLM 问股配置">
               <div className="settings-form">
-                <label className="switch-row">
-                  <input
-                    type="checkbox"
-                    checked={systemSettings.llm_enabled === 'true'}
-                    onChange={(event) => setSystemSettings({ ...systemSettings, llm_enabled: event.target.checked ? 'true' : 'false' })}
-                  />
-                  <span>启用 LLM 综合回答</span>
-                  <em>{llmReady ? '已就绪' : '未就绪'}</em>
-                </label>
+                <p>填写 Key 后自动尝试使用；调用失败或返回无效时自动使用本地回答。<em>{llmReady ? ' 已配置' : ' 未配置'}</em></p>
                 <label>
                   <span>OpenAI API Key</span>
                   <input
@@ -365,26 +351,7 @@ export default function App() {
 
             <Panel title="本地执行参数">
               <div className="settings-form compact">
-                <label>
-                  <span>数据源</span>
-                  <select
-                    value={systemSettings.data_provider}
-                    onChange={(event) => setSystemSettings({ ...systemSettings, data_provider: event.target.value })}
-                  >
-                    <option value="auto">自动选择</option>
-                    <option value="sample">离线样本</option>
-                    <option value="akshare">AkShare</option>
-                    <option value="yfinance">Yahoo Finance</option>
-                  </select>
-                </label>
-                <label>
-                  <span>降级顺序</span>
-                  <input
-                    value={systemSettings.data_provider_order}
-                    onChange={(event) => setSystemSettings({ ...systemSettings, data_provider_order: event.target.value })}
-                    placeholder="tushare,akshare,yfinance,alpha_vantage,sample"
-                  />
-                </label>
+                <p>数据源按能力自动降级：A 股 Tushare → AkShare → Yahoo；港/美股 Yahoo → Alpha Vantage。不会使用 sample 数据。</p>
                 <label>
                   <span>Tushare Token</span>
                   <input
