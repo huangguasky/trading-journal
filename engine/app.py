@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import replace
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any
@@ -37,7 +38,10 @@ class Handler(BaseHTTPRequestHandler):
             if path == "/health":
                 self.send_json({"ok": True, "service": "trading-journal-engine"})
             elif path == "/reports":
-                self.send_json({"items": db.list_reports(limit=int(query.get("limit", ["30"])[0]))})
+                limit = int(query["limit"][0]) if "limit" in query else None
+                self.send_json({"items": db.list_reports(limit=limit)})
+            elif path == "/watchlist":
+                self.send_json({"items": db.list_watchlist()})
             elif path == "/tracking":
                 symbol = query.get("symbol", [None])[0]
                 self.send_json({"items": TrackingService(db).snapshot(symbol)})
@@ -47,6 +51,19 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_json(build_dashboard())
             elif path == "/settings":
                 self.send_json({"settings": db.get_system_settings(), "llm_ready": is_llm_ready(db.get_system_settings())})
+            else:
+                self.send_json({"error": "not_found"}, 404)
+        except Exception as exc:
+            self.send_json({"error": str(exc)}, 500)
+
+    def do_DELETE(self) -> None:
+        """Delete persisted reports and their dependent tracking tasks."""
+        path = urlparse(self.path).path
+        try:
+            match = re.fullmatch(r"/reports/(\d+)", path)
+            if match:
+                deleted = db.delete_report(int(match.group(1)))
+                self.send_json({"deleted": deleted}, 200 if deleted else 404)
             else:
                 self.send_json({"error": "not_found"}, 404)
         except Exception as exc:
@@ -92,7 +109,7 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Length", str(len(raw)))
         self.send_header("Access-Control-Allow-Origin", "*")
         self.send_header("Access-Control-Allow-Headers", "Content-Type")
-        self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+        self.send_header("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS")
         self.end_headers()
         self.wfile.write(raw)
 

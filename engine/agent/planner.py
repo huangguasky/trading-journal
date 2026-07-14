@@ -21,7 +21,7 @@ def parse_intent(message: str) -> dict:
 
 def extract_symbols(text: str) -> list[str]:
     """Extract and normalize distinct stock symbols mentioned in text."""
-    pattern = r"\bHK\d{1,5}\b|\b\d{6}\b|\b[A-Z]{1,5}(?:\.[A-Z]{1,3})?\b"
+    pattern = r"\bHK\d{1,5}\b|\b\d{1,5}\.HK\b|\b\d{6}\b|\b[A-Z]{1,5}(?:\.[A-Z]{1,3})?\b"
     raw = re.findall(pattern, text.upper())
     ignored = {"A", "HK", "US", "CN", "ETF", "RSI", "MACD", "MA"}
     out = []

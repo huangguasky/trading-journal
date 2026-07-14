@@ -20,11 +20,13 @@ def normalize_symbol(value: str) -> Symbol:
         raise ValueError("symbol is required")
     text = raw.upper().replace(" ", "")
 
-    if text.startswith("HK"):
-        digits = re.sub(r"\D", "", text).zfill(4)
+    hk_prefix = re.fullmatch(r"HK(\d{1,5})", text)
+    if hk_prefix:
+        digits = normalize_hk_digits(hk_prefix.group(1))
         return Symbol(raw, "hk", f"HK{digits}", f"{digits}.HK")
-    if text.endswith(".HK"):
-        digits = text[:-3].zfill(4)
+    hk_suffix = re.fullmatch(r"(\d{1,5})\.HK", text)
+    if hk_suffix:
+        digits = normalize_hk_digits(hk_suffix.group(1))
         return Symbol(raw, "hk", f"HK{digits}", f"{digits}.HK")
 
     match = re.fullmatch(r"(SH|SZ|BJ)?\.?(\d{6})(\.(SH|SZ|BJ|SS))?", text)
@@ -35,6 +37,11 @@ def normalize_symbol(value: str) -> Symbol:
         return Symbol(raw, "cn", f"{exchange}{digits}", f"{digits}.{suffix}")
 
     return Symbol(raw, "us", text, text)
+
+
+def normalize_hk_digits(digits: str) -> str:
+    """Canonicalize common four-digit and zero-padded five-digit HK codes."""
+    return str(int(digits)).zfill(4)
 
 
 def infer_cn_exchange(digits: str) -> str:

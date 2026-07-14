@@ -16,23 +16,35 @@ export async function postJson<T>(path: string, body: unknown): Promise<T> {
   return res.json();
 }
 
+export async function deleteJson<T>(path: string): Promise<T> {
+  const res = await fetch(`${BASE}${path}`, { method: 'DELETE' });
+  if (!res.ok) throw new Error(await res.text());
+  return res.json();
+}
+
 export type StockReport = {
   id?: number;
+  date?: string;
+  created_at?: string;
   symbol: string;
   market: string;
   score: number;
   rating: string;
   action: string;
-  quote: { price: number; currency: string; change_pct: number; source: string };
+  quote: { name?: string; price: number; currency: string; change_pct: number; source: string };
+  evidence?: { confirmations?: string[] };
+  news?: Array<{ title: string; source?: string }>;
   data_quality?: Record<string, any>;
   risk_flags: string[];
-  operation_plan: { entry: string; stop: number; target: number; position: string };
+  operation_plan: { entry: string; stop: number; target: number; position: string; watch_conditions?: string[] };
   selected_strategies?: Array<{ key: string; name: string; score: number; stance: string; evidence: string[]; risks: string[] }>;
   strategies: Array<{ key: string; name: string; score: number; stance: string; evidence: string[]; risks: string[] }>;
-  markdown: string;
 };
 
 export type MarketReport = {
+  id?: number;
+  date?: string;
+  created_at?: string;
   market: string;
   market_regime: string;
   score: number;
@@ -42,6 +54,7 @@ export type MarketReport = {
   risk_flags: string[];
   tomorrow_watch: string[];
   strategy_bias: string;
+  macro_news?: Array<{ title: string; source?: string }>;
+  market_context?: { sentiment?: string };
   data_quality?: Record<string, any>;
-  markdown: string;
 };

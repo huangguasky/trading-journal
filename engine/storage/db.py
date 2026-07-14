@@ -50,19 +50,20 @@ class Database:
                 )
 
     def upsert_watchlist(self, symbols: list[str]) -> None:
-        """Replace the watchlist with normalized distinct symbols."""
+        """Replace the watchlist while preserving the submitted symbol order."""
+        unique_symbols = list(dict.fromkeys(str(symbol).strip() for symbol in symbols if str(symbol).strip()))
         with self.connect() as conn:
-            for symbol in symbols:
+            conn.execute("delete from watchlist")
+            for symbol in unique_symbols:
                 conn.execute(
-                    "insert into watchlist(symbol, enabled, created_at) values(?, 1, ?) "
-                    "on conflict(symbol) do update set enabled=1",
+                    "insert into watchlist(symbol, enabled, created_at) values(?, 1, ?)",
                     (symbol, now_cn_text()),
                 )
 
     def list_watchlist(self) -> list[dict[str, Any]]:
         """Return watchlist entries in their persisted order."""
         with self.connect() as conn:
-            rows = conn.execute("select * from watchlist where enabled=1 order by created_at desc").fetchall()
+            rows = conn.execute("select * from watchlist where enabled=1 order by rowid asc").fetchall()
             return [dict(row) for row in rows]
 
     def save_report(self, kind: str, title: str, score: float, payload: dict[str, Any], markdown: str, symbol: str | None = None, market: str | None = None, regime: str | None = None) -> int:
@@ -74,7 +75,7 @@ class Database:
             )
             return int(cur.lastrowid)
 
-    def list_reports(self, limit: int = 50, kind: str | None = None, symbol: str | None = None) -> list[dict[str, Any]]:
+    def list_reports(self, limit: int | None = 50, kind: str | None = None, symbol: str | None = None) -> list[dict[str, Any]]:
         """List newest reports with optional kind and symbol filters."""
         sql = "select * from reports"
         params: list[Any] = []
@@ -87,8 +88,10 @@ class Database:
             params.append(symbol)
         if clauses:
             sql += " where " + " and ".join(clauses)
-        sql += " order by id desc limit ?"
-        params.append(limit)
+        sql += " order by id desc"
+        if limit is not None:
+            sql += " limit ?"
+            params.append(limit)
         with self.connect() as conn:
             rows = conn.execute(sql, params).fetchall()
         return [_inflate_report(dict(row)) for row in rows]
@@ -97,6 +100,13 @@ class Database:
         """Return the newest saved stock report for a symbol, if any."""
         reports = self.list_reports(limit=1, kind="stock", symbol=symbol)
         return reports[0] if reports else None
+
+    def delete_report(self, report_id: int) -> bool:
+        """Delete a report and every tracking task created from it."""
+        with self.connect() as conn:
+            conn.execute("delete from tracking_tasks where report_id=?", (report_id,))
+            result = conn.execute("delete from reports where id=?", (report_id,))
+            return result.rowcount > 0
 
     def create_tracking_task(self, report_id: int, symbol: str, base_price: float, target_price: float | None, stop_price: float | None) -> int:
         """Persist a report follow-up task and return its generated ID."""
