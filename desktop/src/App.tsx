@@ -46,6 +46,9 @@ type SystemSettings = {
   tushare_token: string;
   alpha_vantage_key: string;
   news_api_key: string;
+  tavily_api_key: string;
+  brave_search_api_key: string;
+  social_sentiment_enabled: string;
   tool_timeout_s: string;
   agent_max_steps: string;
 };
@@ -86,6 +89,9 @@ export default function App() {
     tushare_token: '',
     alpha_vantage_key: '',
     news_api_key: '',
+    tavily_api_key: '',
+    brave_search_api_key: '',
+    social_sentiment_enabled: 'true',
     tool_timeout_s: '8',
     agent_max_steps: '5'
   });
@@ -404,6 +410,32 @@ export default function App() {
                     value={systemSettings.news_api_key}
                     onChange={(event) => setSystemSettings({ ...systemSettings, news_api_key: event.target.value })}
                     placeholder="新闻源，可选"
+                  />
+                </label>
+                <label>
+                  <span>Tavily Key</span>
+                  <input
+                    type="password"
+                    value={systemSettings.tavily_api_key}
+                    onChange={(event) => setSystemSettings({ ...systemSettings, tavily_api_key: event.target.value })}
+                    placeholder="新闻搜索补充，可选"
+                  />
+                </label>
+                <label>
+                  <span>Brave Search Key</span>
+                  <input
+                    type="password"
+                    value={systemSettings.brave_search_api_key}
+                    onChange={(event) => setSystemSettings({ ...systemSettings, brave_search_api_key: event.target.value })}
+                    placeholder="搜索降级来源，可选"
+                  />
+                </label>
+                <label className="toggle-row">
+                  <span>美股社交情绪</span>
+                  <input
+                    type="checkbox"
+                    checked={systemSettings.social_sentiment_enabled === 'true'}
+                    onChange={(event) => setSystemSettings({ ...systemSettings, social_sentiment_enabled: event.target.checked ? 'true' : 'false' })}
                   />
                 </label>
                 <label>

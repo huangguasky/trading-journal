@@ -15,6 +15,7 @@ from engine.analysis.tracking import TrackingService
 from engine.config import get_settings
 from engine.data.market_data import MarketData
 from engine.data.news_data import NewsData
+from engine.data.enrichment import EnrichmentData
 from engine.storage.db import Database
 from engine.strategies.registry import StrategyRegistry
 
@@ -139,8 +140,13 @@ def build_stock_pipeline() -> StockPipeline:
         api_keys=provider_keys(values),
         timeout_s=parse_float(values.get("tool_timeout_s"), settings.tool_timeout_s),
     )
-    news_data = NewsData(values.get("news_api_key", ""), timeout_s=parse_float(values.get("tool_timeout_s"), settings.tool_timeout_s))
-    return StockPipeline(db, market_data=market_data, news_data=news_data)
+    news_data = build_news_data(values)
+    return StockPipeline(
+        db,
+        market_data=market_data,
+        news_data=news_data,
+        enrichment_data=EnrichmentData(timeout_s=parse_float(values.get("tool_timeout_s"), settings.tool_timeout_s)),
+    )
 
 
 def build_market_pipeline() -> MarketPipeline:
@@ -151,7 +157,7 @@ def build_market_pipeline() -> MarketPipeline:
         api_keys=provider_keys(values),
         timeout_s=parse_float(values.get("tool_timeout_s"), settings.tool_timeout_s),
     )
-    news_data = NewsData(values.get("news_api_key", ""), timeout_s=parse_float(values.get("tool_timeout_s"), settings.tool_timeout_s))
+    news_data = build_news_data(values)
     return MarketPipeline(db, market_data=market_data, news_data=news_data)
 
 
@@ -161,6 +167,17 @@ def provider_keys(values: dict[str, str]) -> dict[str, str]:
         "tushare_token": values.get("tushare_token", ""),
         "alpha_vantage_key": values.get("alpha_vantage_key", ""),
     }
+
+
+def build_news_data(values: dict[str, str]) -> NewsData:
+    """Create the multi-source news and social-intelligence client."""
+    return NewsData(
+        values.get("news_api_key", ""),
+        timeout_s=parse_float(values.get("tool_timeout_s"), settings.tool_timeout_s),
+        tavily_api_key=values.get("tavily_api_key", ""),
+        brave_api_key=values.get("brave_search_api_key", ""),
+        social_enabled=values.get("social_sentiment_enabled", "true") == "true",
+    )
 
 
 def resolve_provider_order(values: dict[str, str]) -> str:

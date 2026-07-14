@@ -36,7 +36,7 @@ export type StockReport = {
   news?: Array<{ title: string; source?: string }>;
   data_quality?: Record<string, any>;
   risk_flags: string[];
-  operation_plan: { entry: string; stop: number; target: number; position: string; watch_conditions?: string[] };
+  operation_plan: { entry: string; stop: number | null; target: number | null; position: string; watch_conditions?: string[] };
   selected_strategies?: Array<{ key: string; name: string; score: number; stance: string; evidence: string[]; risks: string[] }>;
   strategies: Array<{ key: string; name: string; score: number; stance: string; evidence: string[]; risks: string[] }>;
 };

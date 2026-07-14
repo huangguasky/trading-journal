@@ -24,6 +24,9 @@ class MarketPipeline:
         news_bundle = self.news_data.market_news_bundle(market)
         score = market_score(snapshot)
         context = build_market_context(market, snapshot, score)
+        dimensions = build_market_dimensions(snapshot)
+        intelligence = classify_market_news(news_bundle.items)
+        trading_plan = build_trading_plan(score, snapshot, dimensions)
         payload = {
             "market": market,
             "market_regime": regime_for_score(score, snapshot),
@@ -32,8 +35,11 @@ class MarketPipeline:
             "breadth": snapshot["breadth"],
             "sector_rotation": snapshot["sector_rotation"],
             "macro_news": news_bundle.items,
+            "news_intelligence": intelligence,
+            "market_dimensions": dimensions,
             "risk_flags": market_risks(score, snapshot, news_bundle.quality),
             "tomorrow_watch": tomorrow_watch(market, snapshot, context),
+            "trading_plan": trading_plan,
             "strategy_bias": self.strategies.select_market_bias(snapshot, news_bundle.items),
             "data_quality": merge_market_quality(snapshot.get("data_quality", {}), news_bundle.quality),
             "market_context": context,
@@ -89,6 +95,64 @@ def build_market_context(market: str, snapshot: dict, score: float) -> dict:
         "leader_count": len(snapshot["sector_rotation"]["leaders"]),
         "watch_assets": snapshot.get("watch_assets", []),
     }
+
+
+def build_market_dimensions(snapshot: dict) -> dict:
+    """Expose the score's main evidence dimensions and their availability."""
+    indices = snapshot.get("indices") or []
+    changes = [float(item.get("change_pct", 0)) for item in indices]
+    positive = sum(value > 0 for value in changes)
+    negative = sum(value < 0 for value in changes)
+    alignment = "同向走强" if positive == len(changes) and changes else "同向走弱" if negative == len(changes) and changes else "指数分化"
+    breadth = snapshot.get("breadth") or {}
+    total = max(1, breadth.get("advancers", 0) + breadth.get("decliners", 0))
+    adv_ratio = breadth.get("advancers", 0) / total
+    limit_up, limit_down = breadth.get("limit_up"), breadth.get("limit_down")
+    limit_available = limit_up is not None and limit_down is not None
+    return {
+        "index_alignment": {"available": bool(changes), "label": alignment, "positive": positive, "negative": negative},
+        "breadth": {"available": total > 1, "advancer_ratio": round(adv_ratio * 100, 1), "is_estimated": bool(breadth.get("is_estimated"))},
+        "limit_sentiment": {"available": limit_available, "spread": (limit_up - limit_down) if limit_available else None},
+        "liquidity": {"available": breadth.get("turnover_billion") is not None, "turnover_billion": breadth.get("turnover_billion"), "is_estimated": bool(breadth.get("is_estimated"))},
+        "rotation": {"available": bool(snapshot.get("sector_rotation", {}).get("leaders")), "is_estimated": bool(snapshot.get("sector_rotation", {}).get("is_estimated"))},
+    }
+
+
+def classify_market_news(items: list[dict]) -> dict:
+    """Group sourced market news into macro, liquidity, and sector catalysts."""
+    groups = {"macro_policy": [], "liquidity": [], "sector_theme": [], "risk_events": []}
+    keywords = {
+        "macro_policy": ("央行", "政策", "利率", "通胀", "美联储", "fed", "inflation", "treasury"),
+        "liquidity": ("资金", "成交", "流动性", "南向", "北向", "vix", "yield"),
+        "sector_theme": ("板块", "行业", "科技", "半导体", "金融", "sector", "technology"),
+        "risk_events": ("风险", "下跌", "监管", "制裁", "违约", "risk", "selloff", "sanction"),
+    }
+    for item in items:
+        text = f"{item.get('title', '')} {item.get('summary', '')}".lower()
+        topic = item.get("topic")
+        if topic == "macro_policy" and item not in groups["macro_policy"]:
+            groups["macro_policy"].append(item)
+        if topic == "liquidity_sector" and item not in groups["liquidity"]:
+            groups["liquidity"].append(item)
+        for group, words in keywords.items():
+            if any(word in text for word in words) and item not in groups[group]:
+                groups[group].append(item)
+    return {**groups, "metrics": {"news_count": len(items), **{f"{key}_count": len(value) for key, value in groups.items()}}}
+
+
+def build_trading_plan(score: float, snapshot: dict, dimensions: dict) -> dict:
+    """Translate the existing market score into an executable next-session frame."""
+    leaders = snapshot.get("sector_rotation", {}).get("leaders", [])
+    laggards = snapshot.get("sector_rotation", {}).get("laggards", [])
+    if score >= 66:
+        stance, position = "进攻", "50%-70%"
+    elif score <= 42:
+        stance, position = "防守", "0%-30%"
+    else:
+        stance, position = "均衡", "30%-50%"
+    ratio = dimensions["breadth"]["advancer_ratio"]
+    invalidation = f"若上涨家数占比由当前 {ratio}% 反向跌破 40%，且主要指数转为多数下跌，则本计划失效。"
+    return {"stance": stance, "position_range": position, "focus": leaders[:3], "avoid": laggards[:3], "invalidation": invalidation}
 
 
 def market_risks(score: float, snapshot: dict, news_quality: dict) -> list[str]:

@@ -34,6 +34,9 @@ def momentum_indicators(bars: list[Bar]) -> dict:
     signal = ema(macd_line, 9)
     return {
         "rsi14": round(rsi(closes), 2),
+        "rsi6": round(rsi(closes, 6), 2),
+        "rsi12": round(rsi(closes, 12), 2),
+        "rsi24": round(rsi(closes, 24), 2),
         "macd": round(macd_line[-1], 4),
         "macd_signal": round(signal[-1], 4),
         "macd_hist": round(macd_line[-1] - signal[-1], 4),

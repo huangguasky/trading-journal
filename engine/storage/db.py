@@ -20,6 +20,9 @@ DEFAULT_SYSTEM_SETTINGS = {
     "tushare_token": "",
     "alpha_vantage_key": "",
     "news_api_key": "",
+    "tavily_api_key": "",
+    "brave_search_api_key": "",
+    "social_sentiment_enabled": "true",
     "tool_timeout_s": "8",
     "agent_max_steps": "5",
 }
@@ -159,6 +162,6 @@ def _inflate_report(row: dict[str, Any]) -> dict[str, Any]:
 
 def normalize_setting_value(key: str, value: Any) -> str:
     """Normalize booleans and scalar setting values for text storage."""
-    if key == "llm_enabled":
+    if key in {"llm_enabled", "social_sentiment_enabled"}:
         return "true" if value in {True, "true", "1", 1, "on", "yes"} else "false"
     return str(value or "").strip()

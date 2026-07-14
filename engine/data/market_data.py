@@ -312,6 +312,8 @@ def synthetic_breadth(market: str, scores: list[float]) -> dict:
         "limit_up": int(advancers * 0.018) if market == "cn" else None,
         "limit_down": int((total - advancers) * 0.006) if market == "cn" else None,
         "turnover_billion": round(total * (0.8 + avg / 100) / 10, 2),
+        "basis": "representative_asset_estimate",
+        "is_estimated": True,
     }
 
 
@@ -328,7 +330,12 @@ def synthetic_sector_rotation(market: str, scores: list[float], assets: list[dic
     laggards = [item["symbol"] for item in ranked[-2:]] + base[-2:]
     if avg < 45:
         leaders = base[-3:]
-    return {"leaders": list(dict.fromkeys(leaders))[:4], "laggards": list(dict.fromkeys(laggards))[:4]}
+    return {
+        "leaders": list(dict.fromkeys(leaders))[:4],
+        "laggards": list(dict.fromkeys(laggards))[:4],
+        "basis": "representative_assets_and_market_template",
+        "is_estimated": True,
+    }
 
 
 def quality_to_dict(quality: DataQuality) -> dict[str, Any]:

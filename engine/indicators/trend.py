@@ -34,12 +34,27 @@ def trend_indicators(bars: list[Bar]) -> dict:
         "distance_to_ma5_pct": round(abs(close / ma5 - 1) * 100, 2) if ma5 else 0,
         "distance_to_ma10_pct": round(abs(close / ma10 - 1) * 100, 2) if ma10 else 0,
         "distance_to_ma20_pct": round(abs(close / ma20 - 1) * 100, 2) if ma20 else 0,
+        "bias_ma5_pct": round((close / ma5 - 1) * 100, 2) if ma5 else 0,
+        "bias_ma10_pct": round((close / ma10 - 1) * 100, 2) if ma10 else 0,
+        "bias_ma20_pct": round((close / ma20 - 1) * 100, 2) if ma20 else 0,
         "near_pullback_ma5_or_ma10": abs(close / ma5 - 1) * 100 <= 1 or abs(close / ma10 - 1) * 100 <= 2,
         "ma5_cross_above_ma10_3d": ma5_cross,
         "ma10_cross_above_ma20_3d": ma10_cross,
         "golden_cross_3d": ma5_cross or ma10_cross,
         "ma20_slope_pct": round((ma20 / sma(closes[:-5], min(20, len(closes[:-5]))) - 1) * 100, 2) if len(closes) > 25 else 0,
+        "trend_strength": trend_strength(close, ma5, ma10, ma20, ma60),
     }
+
+
+def trend_strength(close: float, ma5: float, ma10: float, ma20: float, ma60: float) -> float:
+    """Score trend structure from alignment and price position on a 0-100 scale."""
+    score = 20.0
+    score += 20 if ma5 >= ma10 >= ma20 else 0
+    score += 15 if ma20 >= ma60 else 0
+    score += 15 if close >= ma20 else 0
+    score += 15 if close >= ma60 else 0
+    score += min(15, max(0, (close / ma20 - 1) * 100 * 3)) if ma20 else 0
+    return round(min(100, score), 1)
 
 
 def crossed_above(values: list[float], fast_window: int, slow_window: int, lookback: int) -> bool:

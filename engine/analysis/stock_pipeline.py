@@ -1,9 +1,12 @@
 from __future__ import annotations
 
 from dataclasses import asdict
+from concurrent.futures import ThreadPoolExecutor
+import time
 
 from engine.data.market_data import MarketData
 from engine.data.news_data import NewsData
+from engine.data.enrichment import EnrichmentData, EnrichmentBundle
 from engine.data.normalize import normalize_symbol
 from engine.indicators import compute_indicators
 from engine.storage.db import Database
@@ -16,27 +19,47 @@ from .tracking import TrackingService
 
 class StockPipeline:
     """Coordinate stock data, indicators, strategies, reporting, and persistence."""
-    def __init__(self, db: Database, market_data: MarketData | None = None, news_data: NewsData | None = None, strategies: StrategyRegistry | None = None):
+    def __init__(self, db: Database, market_data: MarketData | None = None, news_data: NewsData | None = None, strategies: StrategyRegistry | None = None, enrichment_data: EnrichmentData | None = None):
         """Initialize the pipeline with injectable services for testing or customization."""
         self.db = db
         self.market_data = market_data or MarketData()
         self.news_data = news_data or NewsData()
         self.strategies = strategies or StrategyRegistry()
+        self.enrichment_data = enrichment_data
         self.tracking = TrackingService(db, self.market_data)
 
     def analyze(self, code: str, save: bool = True) -> dict:
         """Analyze one stock and optionally save its report and tracking task."""
         symbol = normalize_symbol(code)
+        started_at = time.monotonic()
+        history_started = time.monotonic()
         history_bundle = self.market_data.history_bundle(symbol)
         quote = quote_from_history(symbol, history_bundle)
         indicators = compute_indicators(history_bundle.bars)
-        news_bundle = self.news_data.stock_news_bundle(symbol.display)
+        diagnostics = {"history_ms": elapsed_ms(history_started)}
+        enrichment_started = time.monotonic()
+        realtime_bundle, fundamental_bundle, chip_bundle, social_bundle, news_bundle = self._collect_enrichment(symbol)
+        diagnostics["enrichment_ms"] = elapsed_ms(enrichment_started)
+        quote = overlay_realtime_quote(quote, realtime_bundle)
+        if chip_bundle.data:
+            indicators["chips"] = chip_bundle.data
         news = news_bundle.items
-        strategy_results = [asdict(item) for item in self.strategies.select_for_stock(indicators, news)]
+        intelligence = news_bundle.intelligence
+        intelligence["social_sentiment"] = social_bundle.data
+        market_context = self._latest_market_context(symbol.market)
+        strategy_context = build_strategy_context(fundamental_bundle.data, intelligence, market_context)
+        strategy_results = [asdict(item) for item in self.strategies.select_for_stock(indicators, news, strategy_context)]
         data_quality = {
             "history": quality_to_dict(history_bundle.quality),
             "price": quality_to_dict(history_bundle.quality),
             "news": news_bundle.quality,
+            "realtime": realtime_bundle.quality,
+            "fundamentals": fundamental_bundle.quality,
+            "social_sentiment": social_bundle.quality,
+            "chips": chip_bundle.quality if chip_bundle.data else {
+                "source": "historical-close-estimate", "status": "estimated", "confidence": "low",
+                "attempts": [], "notes": ["筹码指标由近期收盘价估算，不代表真实持仓成本分布。"],
+            },
         }
         evidence = build_stock_evidence(symbol.display, quote, indicators, news, strategy_results, data_quality)
         report, markdown = build_stock_report(
@@ -46,16 +69,53 @@ class StockPipeline:
                 "quote": quote,
                 "indicators": indicators,
                 "news": news,
+                "intelligence": intelligence,
+                "fundamentals": fundamental_bundle.data,
+                "market_context": market_context,
+                "diagnostics": diagnostics,
                 "strategies": strategy_results,
                 "evidence": evidence,
             }
         )
+        diagnostics["analysis_ms"] = elapsed_ms(started_at)
         if save:
             report_id = self.db.save_report("stock", f"{symbol.display} 个股分析报告", report["score"], report, markdown, symbol.display, symbol.market, report["rating"])
             report["id"] = report_id
             report["tracking_task_id"] = self.tracking.create_for_report(report_id, report)
         report["markdown"] = markdown
         return report
+
+    def _collect_enrichment(self, symbol) -> tuple[EnrichmentBundle, EnrichmentBundle, EnrichmentBundle, object, object]:
+        """Fetch independent optional inputs concurrently and degrade per source."""
+        unavailable = EnrichmentBundle({}, {
+            "source": "disabled", "status": "unavailable", "confidence": "low",
+            "attempts": [], "notes": ["增强数据源未启用。"],
+        })
+        if self.enrichment_data is None:
+            return unavailable, unavailable, unavailable, self.news_data.social_sentiment(symbol.display, symbol.market), self.news_data.stock_news_bundle(symbol.display)
+        with ThreadPoolExecutor(max_workers=5) as pool:
+            realtime = pool.submit(self.enrichment_data.realtime_quote, symbol)
+            fundamentals = pool.submit(self.enrichment_data.fundamentals, symbol)
+            chips = pool.submit(self.enrichment_data.chip_distribution, symbol)
+            social = pool.submit(self.news_data.social_sentiment, symbol.display, symbol.market)
+            news = pool.submit(self.news_data.stock_news_bundle, symbol.display)
+            return realtime.result(), fundamentals.result(), chips.result(), social.result(), news.result()
+
+    def _latest_market_context(self, market: str) -> dict:
+        """Reuse the latest persisted market report without recomputing market data."""
+        reports = self.db.list_reports(limit=10, kind="market")
+        row = next((item for item in reports if item.get("market") == market), None)
+        if not row:
+            return {"status": "unavailable", "note": "暂无可复用的大盘报告。"}
+        payload = row.get("payload") or {}
+        return {
+            "status": "ok",
+            "report_id": row.get("id"),
+            "date": payload.get("date"),
+            "market_regime": payload.get("market_regime"),
+            "score": payload.get("score"),
+            "strategy_bias": payload.get("strategy_bias"),
+        }
 
     def analyze_watchlist(self, symbols: list[str], save: bool = True) -> dict:
         """Analyze each watchlist symbol and summarize resulting risk alerts."""
@@ -98,4 +158,42 @@ def quote_from_history(symbol, history_bundle) -> dict:
         "change_pct": round((last.close / prev.close - 1) * 100, 2),
         "currency": currency,
         "source": history_bundle.quality.source,
+        "as_of": bars[-1].date,
+        "is_partial_bar": False,
     }
+
+
+def overlay_realtime_quote(quote: dict, bundle: EnrichmentBundle) -> dict:
+    """Overlay verified realtime fields while keeping historical provenance."""
+    if not bundle.data.get("price"):
+        return quote
+    merged = dict(quote)
+    for key in ("name", "price", "change_pct", "open", "high", "low", "volume", "market_cap", "as_of", "is_partial_bar", "is_stale"):
+        if bundle.data.get(key) is not None:
+            merged[key] = bundle.data[key]
+    merged["source"] = bundle.quality.get("source", quote["source"])
+    merged["history_source"] = quote["source"]
+    return merged
+
+
+def build_strategy_context(fundamentals: dict, intelligence: dict, market_context: dict) -> dict:
+    """Expose normalized enhancement metrics to existing declarative strategies."""
+    metrics = intelligence.get("metrics", {})
+    growth = fundamentals.get("growth", {})
+    quality = fundamentals.get("quality", {})
+    return {
+        "intelligence": metrics,
+        "fundamentals": {
+            "revenue_yoy": growth.get("revenue_yoy"),
+            "profit_yoy": growth.get("profit_yoy"),
+            "roe": quality.get("roe"),
+        },
+        "market": {
+            "risk_off": market_context.get("market_regime") == "risk_off",
+            "score": market_context.get("score"),
+        },
+    }
+
+
+def elapsed_ms(started_at: float) -> int:
+    return int((time.monotonic() - started_at) * 1000)

@@ -20,9 +20,11 @@ class StrategyRegistry:
         """Return all registered strategy definitions."""
         return list(self._items.values())
 
-    def select_for_stock(self, indicators: dict, news: list[dict]) -> list[StrategyResult]:
+    def select_for_stock(self, indicators: dict, news: list[dict], context: dict | None = None) -> list[StrategyResult]:
         """Evaluate every strategy and rank results by absolute conviction."""
-        results = [evaluate_strategy(item, indicators, news) for item in self.all()]
+        merged = dict(indicators)
+        merged.update(context or {})
+        results = [evaluate_strategy(item, merged, news) for item in self.all()]
         return sorted(results, key=lambda item: item.score, reverse=True)
 
     def select_market_bias(self, market_snapshot: dict, news: list[dict]) -> str:
