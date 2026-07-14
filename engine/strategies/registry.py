@@ -61,6 +61,7 @@ def evaluate_strategy(definition: StrategyDefinition, indicators: dict, news: li
     score = 45.0
     evidence: list[str] = []
     risks: list[str] = []
+    required_failed = False
     ctx = flatten_indicators(indicators)
     ctx["news_count"] = len(news)
     for rule in definition.rules:
@@ -70,6 +71,10 @@ def evaluate_strategy(definition: StrategyDefinition, indicators: dict, news: li
         weight = float(rule.get("weight", 0))
         actual = ctx.get(str(metric))
         if actual is None:
+            if rule.get("required"):
+                required_failed = True
+                if rule.get("risk"):
+                    risks.append(str(rule["risk"]))
             continue
         matched = compare(actual, op, expected)
         if matched:
@@ -81,6 +86,10 @@ def evaluate_strategy(definition: StrategyDefinition, indicators: dict, news: li
             score -= max(0, weight * 0.35)
             if rule.get("risk"):
                 risks.append(str(rule["risk"]))
+            if rule.get("required"):
+                required_failed = True
+    if required_failed:
+        score = min(score, 49)
     bounded = round(max(0, min(100, score)), 1)
     if not evidence:
         evidence.append("暂未命中强信号，适合作为观察项。")

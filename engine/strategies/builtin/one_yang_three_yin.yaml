@@ -1,0 +1,24 @@
+key: one_yang_three_yin
+name: 一阳夹三阴
+description: 识别大阳线后三日缩量整理、随后阳线突破的趋势延续形态。
+tags: [pattern, candle, continuation]
+risk_bias: aggressive
+rules:
+  - metric: patterns.one_yang_three_yin
+    op: truthy
+    value: true
+    required: true
+    weight: 32
+    evidence: 最近五根 K 线形成一阳、三日缩量整理、再阳线突破的完整结构。
+    risk: 当前五日 K 线结构不满足一阳夹三阴的严格定义。
+  - metric: trend.bullish_alignment
+    op: truthy
+    value: true
+    weight: 12
+    evidence: MA5、MA10、MA20 多头排列，形态处于顺势背景。
+    risk: 均线背景不强，形态成功率需要打折。
+  - metric: trend.above_ma20
+    op: truthy
+    value: true
+    weight: 8
+    evidence: 价格保持在 MA20 上方，中期结构没有被破坏。

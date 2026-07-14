@@ -1,28 +1,49 @@
 key: range_rotation
 name: 箱体轮动
-description: 适用于趋势不强但支撑压力清晰的震荡区间，强调低吸高抛和纪律止损。
+description: 识别经过多次触碰确认、宽度可交易的震荡箱体，强调低吸高抛和纪律止损。
 tags: [range, rotation, timing]
 risk_bias: balanced
 rules:
+  - metric: levels.box_confirmed_60d
+    op: truthy
+    value: true
+    required: true
+    weight: 10
+    evidence: 箱体上下沿均经过多次确认，且宽度处于 5% 至 25% 的可交易范围。
+    risk: 近期结构不满足有效箱体定义，不应按箱体轮动处理。
+  - metric: levels.support_touches_60d
+    op: ">="
+    value: 2
+    weight: 6
+    evidence: 60 日箱体下沿至少两次获得支撑，边界具备参考价值。
+  - metric: levels.resistance_touches_60d
+    op: ">="
+    value: 2
+    weight: 6
+    evidence: 60 日箱体上沿至少两次形成压力，震荡区间较清晰。
+  - metric: levels.box_width_pct
+    op: ">="
+    value: 5
+    weight: 6
+    evidence: 箱体宽度超过 5%，具备基本波段空间。
   - metric: levels.distance_to_support_pct
     op: "<="
     value: 7
-    weight: 14
+    weight: 10
     evidence: 价格距离支撑不远，箱体下沿具备观察意义。
     risk: 箱体跌破后不应继续按震荡策略处理。
   - metric: levels.distance_to_resistance_pct
     op: ">="
     value: 4
-    weight: 10
+    weight: 8
     evidence: 距离压力位仍有空间，风险收益比尚可。
   - metric: momentum.rsi14
     op: "<="
     value: 62
-    weight: 8
+    weight: 6
     evidence: 动量没有明显过热，适合等待区间内节奏。
   - metric: levels.atr_pct
     op: "<="
     value: 5.5
-    weight: 8
+    weight: 6
     evidence: 区间波动仍处于可管理范围。
-

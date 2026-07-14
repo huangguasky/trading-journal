@@ -1,28 +1,50 @@
 key: bottom_accumulation
 name: 底部蓄势
-description: 关注跌幅释放后靠近支撑、动量修复且筹码拥挤度下降的低位修复机会。
+description: 关注明显下跌后靠近支撑、底部放量且 K 线企稳的低位修复机会。
 tags: [reversal, bottom, accumulation]
 risk_bias: balanced
 rules:
+  - metric: momentum.decline_from_20d_high_pct
+    op: "<="
+    value: -15
+    required: true
+    weight: 12
+    evidence: 股价较 20 日高点回撤超过 15%，风险已有明显释放。
+  - metric: volume.latest_to_avg5
+    op: ">="
+    value: 3
+    required: true
+    weight: 16
+    evidence: 底部当日成交量超过此前 5 日均量三倍，出现资金异动。
+    risk: 底部尚无显著放量，反转缺少资金确认。
+  - metric: patterns.bullish_candle
+    op: truthy
+    value: true
+    weight: 8
+    evidence: 放量日收出阳线，价格出现企稳迹象。
+  - metric: patterns.lower_shadow_ratio
+    op: ">="
+    value: 0.3
+    weight: 8
+    evidence: K 线具有明显下影线，低位存在买方承接。
   - metric: levels.distance_to_support_pct
     op: "<="
     value: 5
-    weight: 14
+    weight: 10
     evidence: 价格靠近阶段支撑，具备低位观察价值。
     risk: 若支撑继续失守，底部假设需要撤销。
   - metric: momentum.rsi14
     op: "<="
     value: 55
-    weight: 10
+    weight: 6
     evidence: RSI 未进入过热区，修复空间仍在。
   - metric: chips.profit_position_pct
     op: "<="
     value: 68
-    weight: 12
+    weight: 6
     evidence: 获利盘比例不高，筹码压力相对可控。
   - metric: levels.atr_pct
     op: "<="
     value: 6
-    weight: 8
+    weight: 4
     evidence: 波动未失控，适合继续跟踪筑底质量。
-

@@ -38,4 +38,5 @@ def momentum_indicators(bars: list[Bar]) -> dict:
         "macd_signal": round(signal[-1], 4),
         "macd_hist": round(macd_line[-1] - signal[-1], 4),
         "return_20d_pct": round((closes[-1] / closes[-20] - 1) * 100, 2),
+        "decline_from_20d_high_pct": round((closes[-1] / max(closes[-20:]) - 1) * 100, 2),
     }

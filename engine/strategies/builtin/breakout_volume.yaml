@@ -1,22 +1,30 @@
 key: breakout_volume
 name: 放量突破
-description: 关注接近压力位且成交额扩张的右侧突破形态。
+description: 关注收盘有效站上前期压力且当日成交量明显扩张的右侧突破形态。
 tags: [breakout, volume]
 risk_bias: aggressive
 rules:
+  - metric: levels.breakout_above_prior_20d
+    op: truthy
+    value: true
+    required: true
+    weight: 20
+    evidence: 收盘价已经站上此前 20 日压力位，价格突破得到确认。
+    risk: 当前只是接近压力位，尚未形成有效收盘突破。
   - metric: levels.distance_to_resistance_pct
     op: "<="
     value: 3
-    weight: 18
+    weight: 8
     evidence: 价格接近 20 日压力位，具备突破观察价值。
     risk: 若无后续量价确认，假突破风险较高。
-  - metric: volume.volume_ratio_5_20
+  - metric: volume.latest_to_avg5
     op: ">="
-    value: 1.18
+    value: 2
     weight: 20
-    evidence: 近期成交量高于 20 日均量。
+    evidence: 当日成交量超过此前 5 日均量两倍，突破获得量能确认。
+    risk: 突破日量能不足，需警惕假突破。
   - metric: momentum.return_20d_pct
     op: ">="
     value: 4
-    weight: 10
+    weight: 8
     evidence: 近期相对强度为正。

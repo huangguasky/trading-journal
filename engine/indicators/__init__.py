@@ -2,6 +2,7 @@ from engine.data.market_data import Bar
 from .chips import chip_indicators
 from .levels import levels_indicators
 from .momentum import momentum_indicators
+from .patterns import pattern_indicators
 from .trend import trend_indicators
 from .volume import volume_indicators
 
@@ -16,4 +17,5 @@ def compute_indicators(bars: list[Bar]) -> dict:
         "volume": volume_indicators(bars),
         "levels": levels_indicators(bars),
         "chips": chip_indicators(bars),
+        "patterns": pattern_indicators(bars),
     }

@@ -1,22 +1,43 @@
 key: pullback_entry
 name: 回踩低吸
-description: 在中期趋势未破坏的前提下，寻找受控回踩后的低吸机会。
+description: 在均线多头排列未破坏的前提下，寻找缩量回踩 MA5 或 MA10 的低吸机会。
 tags: [pullback, timing]
 risk_bias: balanced
 rules:
+  - metric: trend.bullish_alignment
+    op: truthy
+    value: true
+    required: true
+    weight: 10
+    evidence: MA5、MA10、MA20 保持多头排列，回踩具备趋势前提。
+    risk: 均线尚未形成多头排列，不宜把弱势下跌误判为回踩。
+  - metric: trend.near_pullback_ma5_or_ma10
+    op: truthy
+    value: true
+    required: true
+    weight: 16
+    evidence: 价格位于 MA5 的 1% 或 MA10 的 2% 范围内，处于有效回踩区。
+    risk: 价格没有靠近 MA5 或 MA10，当前不属于均线回踩位置。
+  - metric: volume.last3_to_avg20
+    op: "<="
+    value: 0.8
+    required: true
+    weight: 14
+    evidence: 最近三日量能低于 20 日均量，回调呈缩量特征。
+    risk: 回踩没有缩量，需防范主动抛压而非良性整理。
   - metric: trend.above_ma60
     op: truthy
     value: true
-    weight: 18
+    weight: 8
     evidence: 中期趋势仍保持建设性。
   - metric: levels.distance_to_support_pct
     op: "<="
     value: 4
-    weight: 18
+    weight: 8
     evidence: 价格接近 20 日支撑位。
     risk: 若支撑位跌破，需要严格执行风控。
   - metric: momentum.rsi14
     op: "<="
     value: 58
-    weight: 10
+    weight: 6
     evidence: 动量未处于明显过热区。
