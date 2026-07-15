@@ -29,6 +29,7 @@ def build_stock_report(payload: dict) -> tuple[dict, str]:
         "score": score,
         "rating": rating,
         "action": action,
+        "core_conclusion": build_core_conclusion(action, score, indicators, plan, evidence),
         "confidence": confidence,
         "coverage": build_coverage(data_quality),
         "decision_limits": decision_limits,
@@ -95,21 +96,53 @@ def build_operation_plan(quote: dict, indicators: dict, score: float, strategies
     resistance = indicators["levels"]["resistance_20d"]
     atr_pct = indicators["levels"]["atr_pct"]
     top_name = strategies[0]["name"] if strategies else "综合策略"
-    entry = f"以「{top_name}」为主线，优先等待放量站上 {resistance}，或回踩 {support} 附近企稳后分批观察。"
+    ideal_buy = ideal_buy_price(quote, indicators, score)
+    stop = support if support < ideal_buy else round(ideal_buy * (1 - max(0.03, atr_pct / 100)), 3)
+    entry = f"以「{top_name}」为主线，优先等待放量站上 {resistance}，或回踩 {ideal_buy} 附近企稳后分批观察。"
     if score < 50:
         entry = f"当前不适合主动追买，除非重新站回 {resistance} 且量能修复，否则以观察和风险控制为主。"
     target = round(quote["price"] * (1 + max(0.04, atr_pct / 100 * 2)), 3)
     return {
         "entry": entry,
-        "stop": support,
+        "ideal_buy": ideal_buy,
+        "stop": stop,
         "target": target,
         "position": position_hint(score, atr_pct),
         "watch_conditions": [
             f"收盘价能否站稳 20 日线 {indicators['trend']['ma20']}",
             f"成交量比值能否维持在 1.0 以上，当前为 {indicators['volume']['volume_ratio_5_20']}",
-            f"若跌破 {support}，原有策略假设需要重新评估",
+            f"若跌破 {stop}，原有策略假设需要重新评估",
         ],
     }
+
+
+def ideal_buy_price(quote: dict, indicators: dict, score: float) -> float:
+    """Choose a deterministic pullback entry from MA5/MA10/support by trend quality."""
+    trend = indicators["trend"]
+    support = indicators["levels"]["support_20d"]
+    if score >= 60 and trend.get("bullish_alignment"):
+        candidate = trend["ma5"]
+    elif score >= 50:
+        candidate = trend["ma10"]
+    else:
+        candidate = support
+    return round(max(0, min(candidate, quote["price"])), 3)
+
+
+def build_core_conclusion(action: str, score: float, indicators: dict, plan: dict, evidence: dict) -> str:
+    """Build a guardrail-consistent one-paragraph decision conclusion from facts."""
+    if plan.get("ideal_buy") is None:
+        return f"{action}。当前数据不足以支持可执行价位，补齐真实行情后再判断。"
+    trend = indicators["trend"]
+    structure = "多头结构" if trend.get("bullish_alignment") else (
+        "中期趋势尚可" if trend.get("above_ma60") else "中期趋势尚未确认"
+    )
+    conflict = (evidence.get("conflicts") or [])[:1]
+    risk_note = f"主要制约是{conflict[0]}" if conflict else "执行时仍需等待量价确认"
+    return (
+        f"评分 {score}/100，{structure}，当前策略为：{action}。"
+        f"理想买入价 {plan['ideal_buy']}，跌破 {plan['stop']} 则交易逻辑失效；{risk_note}。"
+    )
 
 
 def rating_for_score(score: float) -> str:
@@ -224,6 +257,7 @@ def apply_plan_guardrail(plan: dict, limits: list[str]) -> dict:
     guarded = dict(plan)
     guarded.update({
         "entry": "先取得真实行情并重新运行分析，本次不提供可执行入场价。",
+        "ideal_buy": None,
         "stop": None,
         "target": None,
         "position": "观望",
@@ -261,21 +295,24 @@ def render_stock_markdown(report: dict) -> str:
 ## 1. 决策摘要
 当前价格为 {report['quote']['price']} {report['quote']['currency']}，涨跌幅 {report['quote']['change_pct']}%。建议仓位为「{plan['position']}」，止损参考 {plan['stop']}，目标观察 {plan['target']}。
 
-## 2. 核心证据
+## 2. 核心结论
+{report['core_conclusion']}
+
+## 3. 核心证据
 {confirmations}
 
-## 3. 策略融合
+## 4. 策略融合
 {strategies}
 
 辅助观察：
 {support_strategies or "- 暂无额外辅助策略。"}
 
-## 4. 基本面与市场环境
+## 5. 基本面与市场环境
 {fundamentals}
 
 {market_context}
 
-## 5. 资讯与风险
+## 6. 资讯与风险
 {news}
 
 情报分类：
@@ -284,8 +321,9 @@ def render_stock_markdown(report: dict) -> str:
 风险提示：
 {risks}
 
-## 6. 操作计划
+## 7. 操作计划
 - 入场：{plan['entry']}
+- 理想买入价：{plan['ideal_buy']}
 - 止损：{plan['stop']}
 - 目标：{plan['target']}
 - 仓位：{plan['position']}
@@ -296,7 +334,7 @@ def render_stock_markdown(report: dict) -> str:
 失效条件与决策限制：
 {limits}
 
-## 7. 数据质量
+## 8. 数据质量
 {quality}
 """
 

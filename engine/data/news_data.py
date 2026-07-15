@@ -45,6 +45,7 @@ class NewsData:
             ("newsapi", self.news_api_key, lambda value: self._newsapi(f"{value} stock", language="zh")),
             ("tavily", self.tavily_api_key, self._tavily),
             ("brave", self.brave_api_key, self._brave),
+            ("google-news-rss", None, self._google_news_rss),
             ("yfinance-news", None, self._yfinance_news),
         ]
         for provider, credential, loader in providers:
@@ -125,8 +126,10 @@ class NewsData:
 
     def social_sentiment(self, symbol: str, market: str) -> EnrichmentLike:
         """Load lightweight Reddit sentiment for US symbols only."""
-        if not self.social_enabled or market != "us":
-            return EnrichmentLike({}, quality("reddit", "skipped", "low", [], ["社交情绪未启用或当前市场不适用。"]))
+        if market != "us":
+            return EnrichmentLike({}, quality("reddit", "not_supported", "low", [], ["当前仅对美股提供 Reddit 社交情绪，港股与 A 股不适用。"]))
+        if not self.social_enabled:
+            return EnrichmentLike({}, quality("reddit", "skipped", "low", [], ["社交情绪已在设置中关闭。"]))
         try:
             req = urllib.request.Request(
                 f"https://www.reddit.com/search.json?{urllib.parse.urlencode({'q': symbol, 'sort': 'new', 'limit': 20, 't': 'week'})}",
@@ -170,6 +173,49 @@ class NewsData:
             content = item.get("content", item)
             output.append({"title": content.get("title"), "source": (content.get("provider") or {}).get("displayName", "yfinance"), "date": str(content.get("pubDate") or today_cn())[:10], "url": (content.get("canonicalUrl") or {}).get("url"), "kind": "news"})
         return [item for item in output if item.get("title")]
+
+    def _google_news_rss(self, symbol: str) -> list[dict[str, Any]]:
+        """Load recent public news through Google News RSS without credentials."""
+        from engine.data.normalize import normalize_symbol
+
+        normalized = normalize_symbol(symbol)
+        market_term = {"hk": "港股", "cn": "A股", "us": "stock"}[normalized.market]
+        company_name = self._yahoo_company_name(normalized.provider_code)
+        query_identity = f"{company_name} {normalized.provider_code}" if company_name else normalized.provider_code
+        params = urllib.parse.urlencode({"q": f"{query_identity} {market_term}", "hl": "zh-CN", "gl": "HK", "ceid": "HK:zh-Hans"})
+        request = urllib.request.Request(
+            f"https://news.google.com/rss/search?{params}",
+            headers={"User-Agent": "Mozilla/5.0 (TradingJournal/0.2)"},
+        )
+        with urllib.request.urlopen(request, timeout=self.timeout_s) as response:
+            root = ET.fromstring(response.read())
+        output = []
+        for item in root.findall("./channel/item")[:10]:
+            source = item.find("source")
+            output.append({
+                "title": item.findtext("title"),
+                "source": source.text if source is not None else "google-news-rss",
+                "date": str(item.findtext("pubDate") or today_cn())[:16],
+                "url": item.findtext("link"),
+                "kind": "news",
+            })
+        return [item for item in output if item.get("title")]
+
+    def _yahoo_company_name(self, provider_code: str) -> str:
+        """Resolve a provider ticker to a company name for relevant news search."""
+        ticker = urllib.parse.quote(provider_code, safe="")
+        request = urllib.request.Request(
+            f"https://query1.finance.yahoo.com/v8/finance/chart/{ticker}?range=5d&interval=1d",
+            headers={"User-Agent": "Mozilla/5.0 (TradingJournal/0.2)"},
+        )
+        try:
+            with urllib.request.urlopen(request, timeout=self.timeout_s) as response:
+                payload = json.loads(response.read().decode("utf-8"))
+            results = ((payload.get("chart") or {}).get("result") or [])
+            meta = (results[0].get("meta") or {}) if results else {}
+            return str(meta.get("shortName") or meta.get("longName") or "").strip()
+        except Exception:
+            return ""
 
     def _announcements(self, symbol: str) -> list[dict[str, Any]]:
         from engine.data.normalize import normalize_symbol

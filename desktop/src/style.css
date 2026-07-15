@@ -571,6 +571,12 @@ textarea {
   margin-bottom: 0;
 }
 
+.confirm-overlay { position: fixed; inset: 0; z-index: 50; display: grid; place-items: center; padding: 24px; background: rgba(18, 27, 43, .42); backdrop-filter: blur(4px); }
+.confirm-dialog { width: min(440px, 100%); padding: 24px; border: 1px solid #dce5ef; border-radius: 18px; background: #fff; box-shadow: 0 24px 70px rgba(20, 31, 50, .24); }
+.confirm-dialog > strong { font-size: 20px; }
+.confirm-dialog > p { color: var(--muted); line-height: 1.7; }
+.confirm-dialog > div { display: flex; flex-wrap: wrap; gap: 10px; }
+
 .score {
   width: 118px;
   height: 118px;

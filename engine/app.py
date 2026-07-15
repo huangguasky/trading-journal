@@ -14,6 +14,7 @@ from engine.analysis.market_pipeline import MarketPipeline
 from engine.analysis.llm_enhancement import NaturalLanguageEnhancer
 from engine.analysis.stock_pipeline import StockPipeline
 from engine.analysis.tracking import TrackingService
+from engine.data.normalize import normalize_symbol
 from engine.analysis.watchlist import WatchlistService
 from engine.config import get_settings
 from engine.data.market_data import MarketData
@@ -24,7 +25,7 @@ from engine.strategies.registry import StrategyRegistry
 
 settings = get_settings()
 db = Database(settings.db_path)
-ENGINE_API_VERSION = "3"
+ENGINE_API_VERSION = "4"
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -84,11 +85,21 @@ class Handler(BaseHTTPRequestHandler):
         body = self.read_json()
         try:
             if path == "/analyze/stock":
-                self.send_json(build_stock_pipeline().analyze(body["symbol"], save=bool(body.get("save", True))))
+                symbol = normalize_symbol(body["symbol"]).display
+                existing = db.get_last_report(symbol)
+                if existing and not bool(body.get("force", False)):
+                    self.send_json({"status": "exists", "report": report_for_client(existing)})
+                else:
+                    self.send_json({"status": "generated", "report": build_stock_pipeline().analyze(symbol, save=bool(body.get("save", True)))})
             elif path == "/analyze/watchlist":
                 self.send_json(build_stock_pipeline().analyze_watchlist(list(body.get("symbols", [])), save=bool(body.get("save", True))))
             elif path == "/analyze/market":
-                self.send_json(build_market_pipeline().analyze(body.get("market", "cn"), save=bool(body.get("save", True))))
+                market = str(body.get("market", "cn")).strip().lower()
+                existing = db.get_market_report(market)
+                if existing and not bool(body.get("force", False)):
+                    self.send_json({"status": "exists", "report": report_for_client(existing)})
+                else:
+                    self.send_json({"status": "generated", "report": build_market_pipeline().analyze(market, save=bool(body.get("save", True)))})
             elif path == "/chat":
                 values = db.get_system_settings()
                 runtime_settings = effective_settings(values)
@@ -134,6 +145,11 @@ class Handler(BaseHTTPRequestHandler):
     def log_message(self, format: str, *args: Any) -> None:
         """Suppress the standard library's per-request console logging."""
         return
+
+
+def report_for_client(row: dict[str, Any]) -> dict[str, Any]:
+    """Merge report metadata with its payload for direct desktop display."""
+    return {**row["payload"], "id": row["id"], "created_at": row["created_at"]}
 
 
 def build_dashboard() -> dict:

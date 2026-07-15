@@ -36,6 +36,8 @@ type ReportRecord = {
   payload: StockReport | MarketReport;
 };
 
+type AnalyzeResponse<T> = { status: 'exists' | 'generated'; report: T };
+
 type WatchlistItem = {
   symbol: string;
   latest_report: StockReport | null;
@@ -97,9 +99,11 @@ export default function App() {
   const [reports, setReports] = useState<ReportRecord[]>([]);
   const [reportFilter, setReportFilter] = useState('');
   const [engineStatus, setEngineStatus] = useState<'checking' | 'online' | 'offline'>('checking');
+  const [engineReady, setEngineReady] = useState(false);
   const [engineProblem, setEngineProblem] = useState('');
   const [pendingDeleteId, setPendingDeleteId] = useState<number | null>(null);
   const [deleteError, setDeleteError] = useState('');
+  const [existingPrompt, setExistingPrompt] = useState<{ kind: 'stock' | 'market'; report: StockReport | MarketReport } | null>(null);
   const [systemSettings, setSystemSettings] = useState<SystemSettings>({
     openai_api_key: '',
     openai_base_url: '',
@@ -117,7 +121,38 @@ export default function App() {
   const [llmReady, setLlmReady] = useState(false);
   const [settingsSaved, setSettingsSaved] = useState('');
 
-  useEffect(() => { refreshDashboard(); loadSettings(); loadWatchlist(); }, []);
+  useEffect(() => { initializeEngine(); }, []);
+
+  async function initializeEngine() {
+    setEngineReady(false);
+    setEngineStatus('checking');
+    try {
+      await waitForEngine();
+      const results = await Promise.all([refreshDashboard(), loadSettings(), loadWatchlist()]);
+      if (results.some((ready) => !ready)) throw new Error('引擎初始化数据尚未加载完成。');
+      setEngineReady(true);
+      setEngineStatus('online');
+      setEngineProblem('');
+    } catch (error) {
+      setEngineReady(false);
+      setEngineStatus('offline');
+      setEngineProblem(error instanceof Error ? error.message : '本地 Python 引擎未连接。');
+    }
+  }
+
+  async function waitForEngine() {
+    let lastError: unknown;
+    for (let attempt = 0; attempt < 60; attempt += 1) {
+      try {
+        const health = await getJson<{ ok: boolean }>('/health');
+        if (health.ok) return;
+      } catch (error) {
+        lastError = error;
+      }
+      await new Promise((resolve) => window.setTimeout(resolve, 500));
+    }
+    throw lastError instanceof Error ? lastError : new Error('本地引擎启动超时，请完全退出后重试。');
+  }
 
   async function run<T>(label: string, task: () => Promise<T>): Promise<T | undefined> {
     if (activeTasks.current.has(label)) return undefined;
@@ -142,12 +177,9 @@ export default function App() {
         const latestCnReport = reportData.items.find((item) => item.kind === 'market' && (item.market ?? (item.payload as MarketReport).market) === 'cn');
         setMarketReport(latestCnReport ? { ...latestCnReport.payload, id: latestCnReport.id, created_at: latestCnReport.created_at } as MarketReport : null);
       }
-      setEngineStatus('online');
-      setEngineProblem('');
     } catch (error) {
-      setEngineStatus('offline');
       setEngineProblem(error instanceof Error ? error.message : '本地 Python 引擎未连接。');
-      return;
+      return false;
     }
 
     try {
@@ -156,6 +188,7 @@ export default function App() {
       // Reports remain usable when quote refresh for dashboard tracking fails.
       setDashboard(null);
     }
+    return true;
   }
 
   async function loadSettings() {
@@ -164,9 +197,9 @@ export default function App() {
       setSystemSettings(data.settings);
       setLlmReady(data.llm_ready);
       setAgentProfiles(data.agent_profiles);
-      setEngineStatus('online');
+      return true;
     } catch {
-      setEngineStatus('offline');
+      return false;
     }
   }
 
@@ -174,8 +207,9 @@ export default function App() {
     try {
       const data = await getJson<{ items: WatchlistItem[] }>('/watchlist');
       setWatchlistItems(data.items);
+      return true;
     } catch {
-      setEngineStatus('offline');
+      return false;
     }
   }
 
@@ -190,6 +224,7 @@ export default function App() {
   }
 
   async function addWatchlistSymbol() {
+    if (!engineReady) return;
     const symbol = watchlistSymbol.trim();
     if (!symbol) return;
     await run('watchlist-add', async () => {
@@ -210,15 +245,16 @@ export default function App() {
   }
 
   async function refreshWatchlistSymbol(symbol: string) {
+    if (!engineReady) return;
     await run(`watchlist-refresh-${symbol}`, async () => {
-      await postJson<StockReport>('/analyze/stock', { symbol, save: true });
+      await postJson<AnalyzeResponse<StockReport>>('/analyze/stock', { symbol, save: true, force: true });
       await Promise.all([loadWatchlist(), refreshDashboard()]);
       setWatchlistMessage(`已刷新 ${symbol} 的报告。`);
     });
   }
 
   async function refreshAllWatchlist() {
-    if (watchlistItems.length === 0) return;
+    if (!engineReady || watchlistItems.length === 0) return;
     await run('watchlist-refresh-all', async () => {
       await postJson('/analyze/watchlist', { symbols: watchlistItems.map((item) => item.symbol), save: true });
       await Promise.all([loadWatchlist(), refreshDashboard()]);
@@ -227,22 +263,63 @@ export default function App() {
   }
 
   async function analyzeStock() {
+    if (!engineReady) return;
     await run('stock', async () => {
-      const data = await postJson<StockReport>('/analyze/stock', { symbol: stockSymbol, save: true });
-      setStockReport(data);
-      await refreshDashboard();
+      const data = await postJson<AnalyzeResponse<StockReport>>('/analyze/stock', { symbol: stockSymbol, save: true });
+      if (data.status === 'exists') setExistingPrompt({ kind: 'stock', report: data.report });
+      else {
+        setStockReport(data.report);
+        await refreshDashboard();
+      }
     });
   }
 
   async function analyzeMarket() {
+    if (!engineReady) return;
     await run('market', async () => {
-      const data = await postJson<MarketReport>('/analyze/market', { market, save: true });
-      setMarketReport(data);
+      const data = await postJson<AnalyzeResponse<MarketReport>>('/analyze/market', { market, save: true });
+      if (data.status === 'exists') setExistingPrompt({ kind: 'market', report: data.report });
+      else {
+        setMarketReport(data.report);
+        await refreshDashboard();
+      }
+    });
+  }
+
+  async function regenerateExisting() {
+    if (!engineReady) return;
+    const prompt = existingPrompt;
+    if (!prompt) return;
+    setExistingPrompt(null);
+    await run(prompt.kind, async () => {
+      if (prompt.kind === 'stock') {
+        const report = prompt.report as StockReport;
+        const data = await postJson<AnalyzeResponse<StockReport>>('/analyze/stock', { symbol: report.symbol, save: true, force: true });
+        setStockReport(data.report);
+      } else {
+        const report = prompt.report as MarketReport;
+        const data = await postJson<AnalyzeResponse<MarketReport>>('/analyze/market', { market: report.market, save: true, force: true });
+        setMarketReport(data.report);
+      }
       await refreshDashboard();
     });
   }
 
+  function viewExisting() {
+    if (!existingPrompt) return;
+    const { kind, report } = existingPrompt;
+    setExistingPrompt(null);
+    if (kind === 'stock') openStockReport(report as StockReport);
+    else {
+      const marketItem = report as MarketReport;
+      setMarketReport(marketItem);
+      setMarket(marketItem.market);
+      setPage('market');
+    }
+  }
+
   async function ask() {
+    if (!engineReady) return;
     const message = chatText.trim();
     if (!message) return;
     const history = chatMessages.map(({ role, content }) => ({ role, content }));
@@ -317,9 +394,12 @@ export default function App() {
   const filteredReports = reports.filter((item) => !normalizedFilter || [item.title, item.symbol, item.market, item.kind]
     .some((value) => String(value ?? '').toLowerCase().includes(normalizedFilter)));
   const stockReports = reports.filter((item) => item.kind === 'stock');
+  const filteredStockReports = stockReports.filter((item) => !normalizedFilter || [item.title, item.symbol, item.market, item.kind]
+    .some((value) => String(value ?? '').toLowerCase().includes(normalizedFilter)));
 
   return (
     <main className="app">
+      {existingPrompt && <div className="confirm-overlay"><section className="confirm-dialog"><strong>已有报告</strong><p>该{existingPrompt.kind === 'stock' ? '股票' : '市场'}已有 {formatLocalTime(existingPrompt.report.created_at ?? existingPrompt.report.date)} 生成的报告。</p><div><button className="primary" disabled={!engineReady} onClick={regenerateExisting}>重新生成</button><button className="ghost" onClick={viewExisting}>直接查看</button><button className="ghost" onClick={() => setExistingPrompt(null)}>取消</button></div></section></div>}
       <aside className="nav">
         <div className="brand"><span className="brand-mark"><Database size={18} /></span><span>Trading<br />Journal</span></div>
         {nav.map(([key, label, icon]) => (
@@ -341,7 +421,7 @@ export default function App() {
             </div>
             <Panel
               title="追踪结果与风险提醒"
-              action={<button className="ghost" onClick={refreshDashboard}><RefreshCw size={16} /> 刷新追踪与风险状态</button>}
+              action={<button className="ghost" disabled={!engineReady} onClick={refreshDashboard}><RefreshCw size={16} /> 刷新追踪与风险状态</button>}
             >
               {(dashboard?.risk_alerts?.length ?? 0) > 0 && (
                 <div className="risk-summary">
@@ -374,20 +454,21 @@ export default function App() {
                   onKeyDown={(event) => { if (event.key === 'Enter') { event.preventDefault(); addWatchlistSymbol(); } }}
                   placeholder="例如 600519、HK0700 或 AAPL"
                 />
-                <button className="primary" disabled={isBusy('watchlist-add') || !watchlistSymbol.trim()} onClick={addWatchlistSymbol}><Plus size={16} /> 添加</button>
+                <button className="primary" disabled={!engineReady || isBusy('watchlist-add') || !watchlistSymbol.trim()} onClick={addWatchlistSymbol}><Plus size={16} /> 添加</button>
               </div>
               <small>每次添加一只股票；已有报告会直接载入，没有报告时会自动生成。</small>
             </label>
             {watchlistMessage && <p className="inline-status">{watchlistMessage}</p>}
             <Panel
               title={`自选列表（${watchlistItems.length}）`}
-              action={<button className="ghost" disabled={isBusy('watchlist-refresh-all') || watchlistItems.length === 0} onClick={refreshAllWatchlist}><RefreshCw size={16} /> {isBusy('watchlist-refresh-all') ? '刷新中…' : '全部刷新'}</button>}
+              action={<button className="ghost" disabled={!engineReady || isBusy('watchlist-refresh-all') || watchlistItems.length === 0} onClick={refreshAllWatchlist}><RefreshCw size={16} /> {isBusy('watchlist-refresh-all') ? '刷新中…' : '全部刷新'}</button>}
             >
               {watchlistItems.length > 0
                 ? <div className="watchlist-list">{watchlistItems.map((item) => <WatchlistRow
                     key={item.symbol}
                     item={item}
                     refreshing={isBusy(`watchlist-refresh-${item.symbol}`)}
+                    engineReady={engineReady}
                     removing={isBusy(`watchlist-remove-${item.symbol}`)}
                     onOpen={() => item.latest_report && openStockReport(item.latest_report)}
                     onRefresh={() => refreshWatchlistSymbol(item.symbol)}
@@ -404,7 +485,7 @@ export default function App() {
               <span>股票代码</span>
               <div className="symbol-input-row">
                 <input value={stockSymbol} onChange={(e) => setStockSymbol(e.target.value)} />
-                <button className="primary" disabled={isBusy('stock')} onClick={analyzeStock}>{isBusy('stock') ? '生成中…' : '分析'}</button>
+                <button className="primary" disabled={!engineReady || isBusy('stock')} onClick={analyzeStock}>{isBusy('stock') ? '生成中…' : '分析'}</button>
               </div>
               <small>A 股：6 位代码，如 600519；港股：如 HK1810、HK01810 或 700.HK；美股：字母代码，如 AAPL。</small>
             </label>
@@ -418,7 +499,11 @@ export default function App() {
             {stockReport
               ? <StockReportView report={stockReport} />
               : stockReports.length > 0
-                ? <Panel title={`个股报告（${stockReports.length}）`}>{stockReports.map((item) => <ReportRow key={item.id} item={item} onOpen={() => openReport(item)} />)}</Panel>
+                ? <Panel title={`个股报告（${filteredStockReports.length}）`}>
+                    <input className="report-filter" value={reportFilter} onChange={(event) => setReportFilter(event.target.value)} placeholder="按股票代码、标题或市场筛选报告" />
+                    {filteredStockReports.map((item) => <ReportRow key={item.id} item={item} onOpen={() => openReport(item)} />)}
+                    {filteredStockReports.length === 0 && <Empty text="没有符合筛选条件的个股报告。" />}
+                  </Panel>
                 : <Empty text="先运行一次个股报告。" />}
           </View>
         )}
@@ -426,7 +511,7 @@ export default function App() {
         {page === 'market' && (
           <View title="市场复盘" subtitle="A股、港股、美股切换，输出结构化市场状态。">
             <div className="segmented">{['cn', 'hk', 'us'].map((m) => <button key={m} className={market === m ? 'active' : ''} onClick={() => selectMarket(m)}>{m.toUpperCase()}</button>)}</div>
-            <button className="primary" disabled={isBusy('market')} onClick={analyzeMarket}>{isBusy('market') ? '生成复盘中…' : '生成市场复盘'}</button>
+            <button className="primary" disabled={!engineReady || isBusy('market')} onClick={analyzeMarket}>{isBusy('market') ? '生成复盘中…' : '生成市场复盘'}</button>
             {marketReport?.id && <button className="danger report-delete" disabled={isBusy(`delete-${marketReport.id}`)} onClick={() => deleteReport(marketReport.id!)}><Trash2 size={16} /> 删除这份报告</button>}
             {deleteError && <p>{deleteError}</p>}
             {marketReport ? <MarketView report={marketReport} /> : <Empty text="运行一次市场复盘。" />}
@@ -460,7 +545,7 @@ export default function App() {
                   }}
                   placeholder="输入股票代码和问题，Enter 发送，Shift + Enter 换行"
                 />
-                <button className="primary icon-button" title="发送" disabled={isBusy('chat') || !chatText.trim()} onClick={ask}><Send size={18} /></button>
+                <button className="primary icon-button" title="发送" disabled={!engineReady || isBusy('chat') || !chatText.trim()} onClick={ask}><Send size={18} /></button>
               </div>
             </section>
           </View>
@@ -638,6 +723,7 @@ function ReportRow({ item, onOpen }: { item: ReportRecord; onOpen: () => void })
 function WatchlistRow(props: {
   item: WatchlistItem;
   refreshing: boolean;
+  engineReady: boolean;
   removing: boolean;
   onOpen: () => void;
   onRefresh: () => void;
@@ -650,7 +736,7 @@ function WatchlistRow(props: {
       {report && <><em>{report.score}/100</em><p>{report.action}</p></>}
     </button>
     <div className="watchlist-actions">
-      <button className="ghost" disabled={props.refreshing} onClick={props.onRefresh}><RefreshCw size={15} /> {props.refreshing ? '刷新中…' : '刷新报告'}</button>
+      <button className="ghost" disabled={!props.engineReady || props.refreshing} onClick={props.onRefresh}><RefreshCw size={15} /> {props.refreshing ? '刷新中…' : '刷新报告'}</button>
       <button className="ghost remove" disabled={props.removing} onClick={props.onRemove}><X size={15} /> 移出</button>
     </div>
   </article>;
@@ -673,9 +759,10 @@ function StockReportView({ report }: { report: StockReport }) {
   const stockName = report.quote.name && report.quote.name !== report.symbol ? report.quote.name : '名称暂缺';
   return <div className="report-layout">
     <Panel title="决策摘要"><div className="report-identity"><span>股票代码</span><strong>{report.symbol}</strong><span>股票名称</span><strong>{stockName}</strong><small className="report-time">报告时间：{formatLocalTime(report.created_at ?? report.date) || '未知'}</small></div><div className="score">{report.score}<span>/100</span></div><strong>{report.rating}</strong><p>{report.action}</p><p>当前价格：{report.quote.price} {report.quote.currency}（{report.quote.change_pct}%）</p></Panel>
+    <Panel title="核心结论"><p>{report.core_conclusion ?? `${report.action}。请结合核心证据与操作计划执行。`}</p></Panel>
     <Panel title="核心证据">{confirmations.length ? <ul>{confirmations.map((item) => <li key={item}>{item}</li>)}</ul> : <Empty text="暂无核心证据。" />}</Panel>
     <Panel title="策略融合">{(report.selected_strategies ?? report.strategies.slice(0, 3)).map((s) => <div className="strategy" key={s.key}><strong>{s.name}</strong><span>{s.score}/100</span><p>{s.evidence.join('；')}</p></div>)}</Panel>
-    <Panel title="操作计划"><p>{report.operation_plan.entry}</p><ul><li>止损：{report.operation_plan.stop}</li><li>目标：{report.operation_plan.target}</li><li>仓位：{report.operation_plan.position}</li></ul>{watchConditions.length > 0 && <><strong>后续追踪</strong><ul>{watchConditions.map((item) => <li key={item}>{item}</li>)}</ul></>}</Panel>
+    <Panel title="操作计划"><p>{report.operation_plan.entry}</p><ul><li>理想买入价：{report.operation_plan.ideal_buy ?? '-'}</li><li>止损：{report.operation_plan.stop ?? '-'}</li><li>目标：{report.operation_plan.target ?? '-'}</li><li>仓位：{report.operation_plan.position}</li></ul>{watchConditions.length > 0 && <><strong>后续追踪</strong><ul>{watchConditions.map((item) => <li key={item}>{item}</li>)}</ul></>}</Panel>
     <Panel title="资讯与风险">{news.length > 0 ? <><strong>相关资讯</strong><ul>{news.map((item, index) => <li key={`${item.title}-${index}`}>{item.title}{item.source ? `（${item.source}）` : ''}</li>)}</ul></> : <p>暂无相关新闻。</p>}<strong>风险提示</strong>{report.risk_flags.length > 0 ? <ul>{report.risk_flags.map((risk) => <li key={risk}><ShieldAlert size={14} /> {risk}</li>)}</ul> : <p>暂无明显风险信号。</p>}</Panel>
     <Panel title="数据质量"><QualityView data={report.data_quality} /></Panel>
   </div>;

@@ -13,6 +13,8 @@ def test_stock_pipeline_creates_structured_report(tmp_path):
     assert report["score"] == 0
     assert "tracking_task_id" not in report
     assert report["operation_plan"]["position"] == "观望"
+    assert report["operation_plan"]["ideal_buy"] is None
+    assert report["core_conclusion"]
     assert report["confidence"]["level"] == "low"
     assert "无法生成交易判断" in report["action"]
     assert report["news"] == []
@@ -65,6 +67,10 @@ def test_stock_pipeline_consumes_optional_enrichment(tmp_path):
     assert report["confidence"]["level"] == "high"
     assert report["intelligence"]["metrics"]["catalyst_count"] == 1
     assert report["fundamentals"]["growth"]["revenue_yoy"] == 0.2
+    assert report["operation_plan"]["ideal_buy"] is not None
+    assert report["operation_plan"]["stop"] <= report["operation_plan"]["ideal_buy"] <= report["quote"]["price"]
+    assert "理想买入价" in report["core_conclusion"]
+    assert "理想买入价" in report["markdown"]
 
 
 def test_delete_report_also_deletes_tracking_task(tmp_path):
@@ -74,6 +80,34 @@ def test_delete_report_also_deletes_tracking_task(tmp_path):
     assert db.delete_report(report["id"]) is True
     assert db.list_reports(limit=None) == []
     assert db.list_tracking() == []
+
+
+def test_new_stock_report_replaces_previous_report_and_tracking(tmp_path):
+    db = Database(tmp_path / "replace-stock.db")
+    old_id = db.save_report(
+        "stock", "SH600519 个股分析报告", 60, {"symbol": "SH600519", "score": 60},
+        "# old", symbol="SH600519", market="cn",
+    )
+    db.create_tracking_task(old_id, "SH600519", 100, 110, 95)
+
+    new_id = db.save_report(
+        "stock", "SH600519 个股分析报告", 70, {"symbol": "SH600519", "score": 70},
+        "# new", symbol="SH600519", market="cn",
+    )
+    db.create_tracking_task(new_id, "SH600519", 105, 115, 99)
+
+    reports = db.list_reports(limit=None, kind="stock", symbol="SH600519")
+    assert [item["id"] for item in reports] == [new_id]
+    assert [item["report_id"] for item in db.list_tracking("SH600519")] == [new_id]
+
+
+def test_new_market_report_replaces_previous_market_report(tmp_path):
+    db = Database(tmp_path / "replace-market.db")
+    db.save_report("market", "A股市场复盘", 50, {"market": "cn", "score": 50}, "# old", market="cn")
+    new_id = db.save_report("market", "A股市场复盘", 65, {"market": "cn", "score": 65}, "# new", market="cn")
+
+    reports = db.list_reports(limit=None, kind="market")
+    assert [item["id"] for item in reports] == [new_id]
 
 
 def test_watchlist_replaces_previous_items_and_preserves_order(tmp_path):

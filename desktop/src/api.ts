@@ -1,5 +1,5 @@
 const BASE = import.meta.env.DEV ? '/engine' : 'http://127.0.0.1:8765';
-const EXPECTED_ENGINE_API = '3';
+const EXPECTED_ENGINE_API = '4';
 
 function validateEngine(res: Response): void {
   const version = res.headers.get('X-Trading-Journal-Engine');
@@ -42,12 +42,13 @@ export type StockReport = {
   score: number;
   rating: string;
   action: string;
+  core_conclusion?: string;
   quote: { name?: string; price: number; currency: string; change_pct: number; source: string };
   evidence?: { confirmations?: string[] };
   news?: Array<{ title: string; source?: string }>;
   data_quality?: Record<string, any>;
   risk_flags: string[];
-  operation_plan: { entry: string; stop: number | null; target: number | null; position: string; watch_conditions?: string[] };
+  operation_plan: { entry: string; ideal_buy?: number | null; stop: number | null; target: number | null; position: string; watch_conditions?: string[] };
   selected_strategies?: Array<{ key: string; name: string; score: number; stance: string; evidence: string[]; risks: string[] }>;
   strategies: Array<{ key: string; name: string; score: number; stance: string; evidence: string[]; risks: string[] }>;
 };

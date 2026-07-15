@@ -48,6 +48,21 @@ class Database:
                     "insert or ignore into system_settings(key, value, updated_at) values(?,?,?)",
                     (key, value, now_cn_text()),
                 )
+            self._deduplicate_reports(conn)
+
+    @staticmethod
+    def _deduplicate_reports(conn: sqlite3.Connection) -> None:
+        """Keep only the newest stock/market report for each logical subject."""
+        duplicate_ids = [row[0] for row in conn.execute(
+            "select id from reports where (kind='stock' and symbol is not null and id not in "
+            "(select max(id) from reports where kind='stock' and symbol is not null group by symbol)) "
+            "or (kind='market' and market is not null and id not in "
+            "(select max(id) from reports where kind='market' and market is not null group by market))"
+        ).fetchall()]
+        if duplicate_ids:
+            placeholders = ",".join("?" for _ in duplicate_ids)
+            conn.execute(f"delete from tracking_tasks where report_id in ({placeholders})", duplicate_ids)
+            conn.execute(f"delete from reports where id in ({placeholders})", duplicate_ids)
 
     def upsert_watchlist(self, symbols: list[str]) -> None:
         """Replace the watchlist while preserving the submitted symbol order."""
@@ -85,8 +100,18 @@ class Database:
             return [dict(row) for row in rows]
 
     def save_report(self, kind: str, title: str, score: float, payload: dict[str, Any], markdown: str, symbol: str | None = None, market: str | None = None, regime: str | None = None) -> int:
-        """Persist a report and return its generated database ID."""
+        """Replace the report for the same stock/market and return the new ID."""
         with self.connect() as conn:
+            if kind == "stock" and symbol:
+                old_ids = [row[0] for row in conn.execute("select id from reports where kind='stock' and symbol=?", (symbol,)).fetchall()]
+            elif kind == "market" and market:
+                old_ids = [row[0] for row in conn.execute("select id from reports where kind='market' and market=?", (market,)).fetchall()]
+            else:
+                old_ids = []
+            if old_ids:
+                placeholders = ",".join("?" for _ in old_ids)
+                conn.execute(f"delete from tracking_tasks where report_id in ({placeholders})", old_ids)
+                conn.execute(f"delete from reports where id in ({placeholders})", old_ids)
             cur = conn.execute(
                 "insert into reports(kind, symbol, market, title, score, regime, payload_json, markdown, created_at) values(?,?,?,?,?,?,?,?,?)",
                 (kind, symbol, market, title, score, regime, json.dumps(payload, ensure_ascii=False), markdown, now_cn_text()),
@@ -118,6 +143,15 @@ class Database:
         """Return the newest saved stock report for a symbol, if any."""
         reports = self.list_reports(limit=1, kind="stock", symbol=symbol)
         return reports[0] if reports else None
+
+    def get_market_report(self, market: str) -> dict[str, Any] | None:
+        """Return the single saved report for a market, if any."""
+        with self.connect() as conn:
+            row = conn.execute(
+                "select * from reports where kind='market' and market=? order by id desc limit 1",
+                (market,),
+            ).fetchone()
+        return _inflate_report(dict(row)) if row else None
 
     def delete_report(self, report_id: int) -> bool:
         """Delete a report and every tracking task created from it."""

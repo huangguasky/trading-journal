@@ -60,7 +60,7 @@ class StockPipeline:
             "realtime": realtime_bundle.quality,
             "fundamentals": fundamental_bundle.quality,
             "social_sentiment": social_bundle.quality,
-            "chips": chip_bundle.quality if chip_bundle.data else {
+            "chips": chip_bundle.quality if chip_bundle.data or symbol.market != "cn" else {
                 "source": "historical-close-estimate", "status": "estimated", "confidence": "low",
                 "attempts": [], "notes": ["筹码指标由近期收盘价估算，不代表真实持仓成本分布。"],
             },
@@ -125,6 +125,7 @@ class StockPipeline:
             "type": "stock_report", "symbol": symbol.display, "market": symbol.market,
             "date": __import__("engine.time_utils", fromlist=["today_cn"]).today_cn(),
             "score": 0, "rating": "数据不足", "action": "未取得真实行情，无法生成交易判断",
+            "core_conclusion": "未取得真实行情，当前只能等待数据恢复，不能据此制定买入计划。",
             "confidence": {"level": "low", "reason": "全部真实行情源均不可用。"},
             "coverage": {"technical": False, "realtime": False, "news": False, "fundamentals": False},
             "decision_limits": ["缺少真实历史行情，未计算指标、评分、交易计划或追踪任务。", *suggestions],
@@ -133,7 +134,7 @@ class StockPipeline:
             "news": [], "intelligence": {}, "fundamentals": {}, "market_context": {}, "diagnostics": {},
             "data_quality": {"history": quality, "price": quality},
             "risk_flags": ["真实行情源缺失，任何价格与趋势判断都不可用。", *details],
-            "operation_plan": {"entry": "请先在设置页完成数据源配置并确认可调用。", "stop": None, "target": None, "position": "观望", "watch_conditions": suggestions},
+            "operation_plan": {"entry": "请先在设置页完成数据源配置并确认可调用。", "ideal_buy": None, "stop": None, "target": None, "position": "观望", "watch_conditions": suggestions},
             "tracking": {"base_price": None, "target_price": None, "stop_price": None, "review_after_days": 0, "watch_conditions": suggestions},
         }
         markdown = "\n".join([f"# {symbol.display} 数据不足报告", "", "未取得任何可验证的真实行情，因此未生成交易结论。", "", "## 数据源诊断", *[f"- {item}" for item in details], "", "## 建议", *[f"- {item}" for item in suggestions]])
