@@ -174,6 +174,13 @@ body {
   grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
+.settings-form > p {
+  grid-column: 1 / -1;
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.55;
+}
+
 .settings-form label {
   display: grid;
   gap: 7px;
@@ -335,6 +342,17 @@ textarea {
 .report-delete { margin-bottom: 14px; }
 .report-filter { margin-bottom: 14px; }
 
+.report-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+.report-actions button { height: 44px; margin: 0; }
+.report-actions .report-delete { margin-bottom: 0; }
+
 .settings-actions {
   display: flex;
   align-items: center;
@@ -342,10 +360,94 @@ textarea {
   margin-top: 2px;
 }
 
+.settings-actions button { height: 44px; margin: 0; }
+
 .settings-actions span {
   color: #4d6b7a;
   font-size: 13px;
 }
+
+.agent-profile-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.agent-profile {
+  min-width: 0;
+  padding: 14px;
+  text-align: left;
+  color: var(--ink);
+  background: rgba(248, 251, 254, .9);
+  border: 1px solid #dce5ef;
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.agent-profile:hover { border-color: rgba(42, 170, 194, .55); }
+.agent-profile.active { border-color: var(--cyan-strong); box-shadow: inset 0 0 0 1px var(--cyan-strong); background: rgba(88, 200, 220, .08); }
+.agent-profile > span { display: flex; justify-content: space-between; gap: 10px; align-items: center; }
+.agent-profile strong { color: #234c63; font-size: 16px; }
+.agent-profile em { color: var(--violet); font-size: 12px; font-style: normal; }
+.agent-profile p { min-height: 42px; margin: 10px 0; color: #596a7e; font-size: 13px; line-height: 1.55; }
+.agent-profile small { display: block; color: var(--muted); line-height: 1.55; }
+
+.chat-shell {
+  border: 1px solid #dce5ef;
+  border-radius: 8px;
+  overflow: hidden;
+  background: rgba(255, 255, 255, .82);
+  box-shadow: var(--shadow);
+}
+
+.chat-toolbar {
+  min-height: 58px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 14px;
+  border-bottom: 1px solid #e3eaf2;
+  background: rgba(248, 251, 254, .92);
+}
+
+.chat-toolbar > div { min-width: 0; display: flex; align-items: center; gap: 8px; }
+.chat-toolbar svg { color: var(--cyan-strong); flex: 0 0 auto; }
+.chat-toolbar strong { white-space: nowrap; color: #244760; }
+.chat-toolbar span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); font-size: 12px; }
+.icon-button { width: 44px; height: 44px; padding: 0; justify-content: center; flex: 0 0 auto; }
+.chat-toolbar .icon-button { margin: 0; }
+
+.chat-thread {
+  min-height: 360px;
+  max-height: 58vh;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 18px;
+}
+
+.chat-message { max-width: min(78%, 760px); }
+.chat-message.user { align-self: flex-end; }
+.chat-message.assistant { align-self: flex-start; }
+.chat-message > span { display: block; margin: 0 0 5px 2px; color: var(--muted); font-size: 12px; }
+.chat-message p { margin: 0; padding: 12px 14px; white-space: pre-wrap; line-height: 1.65; border: 1px solid #dfe8f0; border-radius: 8px; background: #f7fafc; }
+.chat-message.user p { color: white; border-color: transparent; background: #397f9e; }
+.chat-message.refused p { color: #8d4055; border-color: rgba(207, 93, 121, .25); background: rgba(207, 93, 121, .07); }
+.chat-message small { display: block; margin: 6px 2px 0; color: var(--muted); line-height: 1.5; }
+.chat-message.pending p { color: var(--muted); }
+
+.chat-composer {
+  display: grid;
+  grid-template-columns: 1fr 44px;
+  gap: 10px;
+  align-items: end;
+  padding: 12px;
+  border-top: 1px solid #e3eaf2;
+}
+.chat-composer textarea { min-height: 54px; max-height: 150px; margin: 0; }
+.chat-composer .primary { margin: 0; }
 
 .segmented {
   display: inline-flex;
@@ -382,6 +484,51 @@ textarea {
 }
 .report-row span, .stock-card span { color: var(--violet); font-weight: 800; }
 .report-row em, .stock-card em { color: var(--muted); font-style: normal; }
+
+.inline-status {
+  margin: 0 0 14px;
+  color: #39758b;
+  font-size: 13px;
+}
+
+.watchlist-list { display: grid; gap: 10px; }
+.watchlist-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: stretch;
+  border: 1px solid #e1e9f2;
+  border-radius: 8px;
+  overflow: hidden;
+  background: rgba(248, 251, 254, .92);
+}
+.watchlist-report {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px 14px;
+  align-items: center;
+  padding: 13px 14px;
+  color: var(--ink);
+  text-align: left;
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+}
+.watchlist-report:hover { background: #fff; }
+.watchlist-report > span { min-width: 0; display: flex; align-items: baseline; gap: 10px; }
+.watchlist-report strong { color: #223a50; font-size: 16px; }
+.watchlist-report small { overflow: hidden; color: var(--muted); text-overflow: ellipsis; white-space: nowrap; }
+.watchlist-report em { color: var(--violet); font-style: normal; font-weight: 800; }
+.watchlist-report p { grid-column: 1 / -1; margin: 0; overflow: hidden; color: #56677a; font-size: 13px; text-overflow: ellipsis; white-space: nowrap; }
+.watchlist-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px;
+  border-left: 1px solid #e1e9f2;
+}
+.watchlist-actions .ghost { min-height: 38px; padding: 8px 10px; white-space: nowrap; }
+.watchlist-actions .remove { color: #a43f59; }
 
 .tracking-list, .risk-summary { display: grid; gap: 9px; }
 .risk-summary {
@@ -514,9 +661,16 @@ code {
 }
 
 @media (max-width: 980px) {
-  .app, .report-layout, .kpi-grid, .settings-grid { grid-template-columns: 1fr; }
+  .app, .report-layout, .kpi-grid, .settings-grid, .agent-profile-grid { grid-template-columns: 1fr; }
+  .settings-form, .settings-form.compact { grid-template-columns: 1fr; }
   .nav { min-height: auto; }
   .symbol-input-row { grid-template-columns: minmax(0, 1fr) 96px; }
+  .report-row, .stock-card { grid-template-columns: 1fr; }
+  .watchlist-row { grid-template-columns: 1fr; }
+  .watchlist-actions { border-top: 1px solid #e1e9f2; border-left: 0; }
+  .watchlist-actions .ghost { flex: 1; justify-content: center; }
   .tracking-row { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .tracking-row em { justify-self: start; }
+  .chat-message { max-width: 92%; }
+  .chat-toolbar span { display: none; }
 }

@@ -38,28 +38,135 @@ engine/
 
 ## Main Workflows
 
+The desktop and CLI share the same local engine. Stock and market analysis use
+fixed pipelines so that data collection, scoring and persistence stay
+reproducible; chat uses a bounded agent flow to choose read-only research tools
+and summarize their evidence.
+
+```mermaid
+flowchart LR
+    UI["Tauri + React desktop"] --> API["Python local HTTP API"]
+    CLI["CLI / runtime"] --> ENGINE["Analysis engine"]
+    API --> ENGINE
+
+    ENGINE --> SP["Stock pipeline"]
+    ENGINE --> MP["Market pipeline"]
+    ENGINE --> CHAT["Chat agent"]
+
+    SP --> DATA["Market / news / enrichment providers"]
+    MP --> DATA
+    CHAT --> TOOLS["Bounded tool registry"] --> DATA
+
+    SP --> DB[("SQLite: reports / watchlist / tracking")]
+    MP --> DB
+    TOOLS --> DB
+    SP -. "reuse latest market context" .-> DB
+```
+
 ### Watchlist Pipeline
 
-Stable and deterministic. It always collects quote, history, indicators, news and strategy evidence before asking the optional LLM to explain conflicts.
+Stable and deterministic. It validates history first, computes indicators, then
+combines independently degradable realtime, fundamental, chip, sentiment and
+news inputs with strategy evidence. Report generation does not depend on an
+LLM.
 
-```text
-watchlist
--> market data
--> indicators
--> news and risks
--> strategy router
--> structured report
--> save history
--> create tracking task
+```mermaid
+flowchart TD
+    START["Stock / watchlist request"] --> NORMALIZE["Normalize CN / HK / US symbol"]
+    NORMALIZE --> HISTORY["Fetch and validate historical bars"]
+    HISTORY --> ENOUGH{"At least 30 bars?"}
+    ENOUGH -- "No" --> UNAVAILABLE["Data-unavailable diagnostic report"]
+    ENOUGH -- "Yes" --> BASE["Derive quote + compute indicators"]
+
+    BASE --> PARALLEL["Collect optional enrichment in parallel"]
+    PARALLEL --> RT["Realtime quote"]
+    PARALLEL --> FUND["Fundamentals"]
+    PARALLEL --> CHIPS["Chip distribution"]
+    PARALLEL --> SOCIAL["Social sentiment"]
+    PARALLEL --> NEWS["News + intelligence"]
+
+    RT --> MERGE["Merge evidence and data quality"]
+    FUND --> MERGE
+    CHIPS --> MERGE
+    SOCIAL --> MERGE
+    NEWS --> MERGE
+    MARKET_CTX[("Latest saved market report")] --> MERGE
+
+    MERGE --> STRATEGY["Strategy selection and scoring"]
+    STRATEGY --> EVIDENCE["Build auditable evidence"]
+    EVIDENCE --> REPORT["Structured report + Markdown"]
+    REPORT --> SAVE{"Save?"}
+    SAVE -- "Yes" --> PERSIST["Save report + create tracking task"]
+    SAVE -- "No" --> RETURN["Return result"]
+    PERSIST --> RETURN
+    UNAVAILABLE --> SAVE
+
+    WATCHLIST["Watchlist"] --> START
+    RETURN --> SUMMARY["Sort by score + aggregate risk alerts"]
 ```
 
 ### Market Review Pipeline
 
 Fixed flow for CN, HK and US market review. Output follows a structured schema with market regime, score, indices, breadth, sector rotation, macro news, risk flags and tomorrow watch.
 
+```mermaid
+flowchart LR
+    REQUEST["CN / HK / US review request"] --> SNAPSHOT["Market snapshot"]
+    REQUEST --> NEWS["Market news bundle"]
+
+    SNAPSHOT --> SCORE["Score: indices + breadth + sentiment"]
+    SNAPSHOT --> DIMENSIONS["Dimensions: alignment / breadth / liquidity / rotation"]
+    SNAPSHOT --> CONTEXT["Market context"]
+    NEWS --> INTEL["Classify macro / liquidity / sector / risk news"]
+
+    SCORE --> REGIME["Regime: risk-on / neutral / volatile / risk-off"]
+    SCORE --> PLAN["Next-session position and trading plan"]
+    DIMENSIONS --> PLAN
+    CONTEXT --> WATCH["Tomorrow watch list"]
+    INTEL --> RISKS["Risk flags + data quality"]
+
+    REGIME --> REPORT["Structured market report + Markdown"]
+    PLAN --> REPORT
+    WATCH --> REPORT
+    RISKS --> REPORT
+    SNAPSHOT --> BIAS["Market strategy bias"] --> REPORT
+    REPORT --> DB[("Optional SQLite persistence")]
+```
+
 ### Chat
 
 Chat uses a small ReAct loop because user questions are open-ended. Tools include quote, history, indicators, news, last report, signal tracking and market context.
+
+```mermaid
+flowchart TD
+    USER["User question + recent conversation"] --> SCOPE{"Stock-market related?"}
+    SCOPE -- "No" --> REFUSE["Return scope guidance"]
+    SCOPE -- "Yes" --> INTENT["Extract symbol / market + classify intent"]
+    INTENT --> PROFILE["Apply quick / standard / deep profile"]
+    PROFILE --> PLAN["Create deterministic, ordered tool plan"]
+    PLAN --> LIMIT["Allowlist + max-step + timeout guardrails"]
+
+    LIMIT --> REGISTRY["Tool registry"]
+    REGISTRY --> QUOTE["Quote / history / indicators"]
+    REGISTRY --> NEWS["News search"]
+    REGISTRY --> REPORTS["Last report / signal tracking"]
+    REGISTRY --> MARKET["Market context"]
+
+    QUOTE --> TRACE["Structured tool trace"]
+    NEWS --> TRACE
+    REPORTS --> TRACE
+    MARKET --> TRACE
+
+    TRACE --> LLM{"LLM configured and available?"}
+    LLM -- "Yes" --> SYNTH["LLM synthesizes only returned evidence"]
+    LLM -- "No / failed" --> FALLBACK["Deterministic local answer"]
+    SYNTH --> RESPONSE["Answer + result card + tool trace"]
+    FALLBACK --> RESPONSE
+```
+
+The chat model does not freely call providers: intent parsing and the selected
+profile determine an allowlist, calls execute in a fixed order with a bounded
+step count and timeout, and the LLM is used only for final evidence synthesis.
 
 ## Run
 

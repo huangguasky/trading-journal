@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
-import { Activity, BarChart3, Bot, ClipboardList, Database, LineChart, Play, RefreshCw, Settings, ShieldAlert, Trash2 } from 'lucide-react';
+import { Activity, ArrowLeft, BarChart3, Bot, ClipboardList, Database, LineChart, Plus, RefreshCw, Send, Settings, ShieldAlert, Trash2, X } from 'lucide-react';
 import { deleteJson, getJson, postJson, MarketReport, StockReport } from './api';
 import './style.css';
 
@@ -36,6 +36,11 @@ type ReportRecord = {
   payload: StockReport | MarketReport;
 };
 
+type WatchlistItem = {
+  symbol: string;
+  latest_report: StockReport | null;
+};
+
 type SystemSettings = {
   openai_api_key: string;
   openai_base_url: string;
@@ -48,6 +53,22 @@ type SystemSettings = {
   social_sentiment_enabled: string;
   tool_timeout_s: string;
   agent_max_steps: string;
+  agent_complexity: 'quick' | 'standard' | 'deep';
+};
+
+type AgentProfile = {
+  key: 'quick' | 'standard' | 'deep';
+  name: string;
+  description: string;
+  agents: string[];
+  max_steps: number;
+};
+
+type ChatMessage = {
+  role: 'user' | 'assistant';
+  content: string;
+  status?: string;
+  card?: { agents?: string[]; complexity?: string; symbols?: string[]; tools?: Array<{ name: string; ok: boolean }> };
 };
 
 const nav: Array<[Page, string, React.ReactNode]> = [
@@ -62,14 +83,15 @@ const nav: Array<[Page, string, React.ReactNode]> = [
 export default function App() {
   const [page, setPage] = useState<Page>('dashboard');
   const [dashboard, setDashboard] = useState<Dashboard | null>(null);
-  const [watchlistText, setWatchlistText] = useState('600519, HK0700, AAPL, MSFT');
-  const [watchlistResult, setWatchlistResult] = useState<any>(null);
+  const [watchlistSymbol, setWatchlistSymbol] = useState('');
+  const [watchlistItems, setWatchlistItems] = useState<WatchlistItem[]>([]);
+  const [watchlistMessage, setWatchlistMessage] = useState('');
   const [stockSymbol, setStockSymbol] = useState('600519');
   const [stockReport, setStockReport] = useState<StockReport | null>(null);
   const [market, setMarket] = useState('cn');
   const [marketReport, setMarketReport] = useState<MarketReport | null>(null);
-  const [chatText, setChatText] = useState('600519 can I chase it with breakout strategy?');
-  const [chat, setChat] = useState<any>(null);
+  const [chatText, setChatText] = useState('600519 现在适合追涨吗？');
+  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const [busyTasks, setBusyTasks] = useState<Record<string, boolean>>({});
   const activeTasks = useRef(new Set<string>());
   const initialMarketLoaded = useRef(false);
@@ -87,8 +109,10 @@ export default function App() {
     brave_search_api_key: '',
     social_sentiment_enabled: 'true',
     tool_timeout_s: '8',
-    agent_max_steps: '5'
+    agent_max_steps: '5',
+    agent_complexity: 'standard'
   });
+  const [agentProfiles, setAgentProfiles] = useState<AgentProfile[]>([]);
   const [llmReady, setLlmReady] = useState(false);
   const [settingsSaved, setSettingsSaved] = useState('');
 
@@ -129,9 +153,10 @@ export default function App() {
 
   async function loadSettings() {
     try {
-      const data = await getJson<{ settings: SystemSettings; llm_ready: boolean }>('/settings');
+      const data = await getJson<{ settings: SystemSettings; llm_ready: boolean; agent_profiles: AgentProfile[] }>('/settings');
       setSystemSettings(data.settings);
       setLlmReady(data.llm_ready);
+      setAgentProfiles(data.agent_profiles);
       setEngineStatus('online');
     } catch {
       setEngineStatus('offline');
@@ -140,8 +165,8 @@ export default function App() {
 
   async function loadWatchlist() {
     try {
-      const data = await getJson<{ items: Array<{ symbol: string }> }>('/watchlist');
-      setWatchlistText(data.items.map((item) => item.symbol).join(', '));
+      const data = await getJson<{ items: WatchlistItem[] }>('/watchlist');
+      setWatchlistItems(data.items);
     } catch {
       setEngineStatus('offline');
     }
@@ -149,20 +174,48 @@ export default function App() {
 
   async function saveSettings() {
     await run('settings', async () => {
-      const data = await postJson<{ settings: SystemSettings; llm_ready: boolean }>('/settings', systemSettings);
+      const data = await postJson<{ settings: SystemSettings; llm_ready: boolean; agent_profiles: AgentProfile[] }>('/settings', systemSettings);
       setSystemSettings(data.settings);
       setLlmReady(data.llm_ready);
+      setAgentProfiles(data.agent_profiles);
       setSettingsSaved(data.llm_ready ? '已保存。问股时会验证 LLM，调用失败将自动使用本地回答。' : '已保存。未配置 LLM Key，将使用本地回答。');
     });
   }
 
-  async function analyzeWatchlist() {
-    await run('watchlist', async () => {
-      const symbols = watchlistText.split(/[,\s]+/).map((x) => x.trim()).filter(Boolean);
-      const data = await postJson<any>('/analyze/watchlist', { symbols, save: true });
-      setWatchlistResult(data);
-      setStockReport(data.items?.[0] ?? null);
+  async function addWatchlistSymbol() {
+    const symbol = watchlistSymbol.trim();
+    if (!symbol) return;
+    await run('watchlist-add', async () => {
+      const data = await postJson<{ items: WatchlistItem[]; symbol: string; created_report: boolean }>('/watchlist/add', { symbol });
+      setWatchlistItems(data.items);
+      setWatchlistSymbol('');
+      setWatchlistMessage(data.created_report ? `已添加 ${data.symbol} 并生成报告。` : `已添加 ${data.symbol}，已载入最新报告。`);
       await refreshDashboard();
+    });
+  }
+
+  async function removeWatchlistSymbol(symbol: string) {
+    await run(`watchlist-remove-${symbol}`, async () => {
+      const data = await deleteJson<{ items: WatchlistItem[] }>(`/watchlist/${encodeURIComponent(symbol)}`);
+      setWatchlistItems(data.items);
+      setWatchlistMessage(`已将 ${symbol} 移出自选。`);
+    });
+  }
+
+  async function refreshWatchlistSymbol(symbol: string) {
+    await run(`watchlist-refresh-${symbol}`, async () => {
+      await postJson<StockReport>('/analyze/stock', { symbol, save: true });
+      await Promise.all([loadWatchlist(), refreshDashboard()]);
+      setWatchlistMessage(`已刷新 ${symbol} 的报告。`);
+    });
+  }
+
+  async function refreshAllWatchlist() {
+    if (watchlistItems.length === 0) return;
+    await run('watchlist-refresh-all', async () => {
+      await postJson('/analyze/watchlist', { symbols: watchlistItems.map((item) => item.symbol), save: true });
+      await Promise.all([loadWatchlist(), refreshDashboard()]);
+      setWatchlistMessage('已刷新全部自选报告。');
     });
   }
 
@@ -183,8 +236,18 @@ export default function App() {
   }
 
   async function ask() {
+    const message = chatText.trim();
+    if (!message) return;
+    const history = chatMessages.map(({ role, content }) => ({ role, content }));
+    setChatMessages((current) => [...current, { role: 'user', content: message }]);
+    setChatText('');
     await run('chat', async () => {
-      setChat(await postJson<any>('/chat', { message: chatText }));
+      try {
+        const result = await postJson<any>('/chat', { message, history });
+        setChatMessages((current) => [...current, { role: 'assistant', content: result.content, status: result.status, card: result.card }]);
+      } catch {
+        setChatMessages((current) => [...current, { role: 'assistant', content: '暂时无法连接本地分析引擎，请稍后重试。', status: 'error' }]);
+      }
     });
   }
 
@@ -206,6 +269,11 @@ export default function App() {
     setPage('stock');
   }
 
+  function navigateTo(nextPage: Page) {
+    if (nextPage === 'stock') setStockReport(null);
+    setPage(nextPage);
+  }
+
   function selectMarket(nextMarket: string) {
     setMarket(nextMarket);
     const latest = reports.find((item) => item.kind === 'market' && (item.market ?? (item.payload as MarketReport).market) === nextMarket);
@@ -214,11 +282,12 @@ export default function App() {
 
   async function deleteReport(reportId: number) {
     if (!window.confirm('确定删除这份报告吗？对应的追踪任务也会一并删除。')) return;
+    const deletingStockReport = stockReport?.id === reportId;
     await run(`delete-${reportId}`, async () => {
       await deleteJson(`/reports/${reportId}`);
       if (stockReport?.id === reportId) setStockReport(null);
       if (marketReport?.id === reportId) setMarketReport(null);
-      setPage('dashboard');
+      setPage(deletingStockReport ? 'stock' : 'dashboard');
       await refreshDashboard();
     });
   }
@@ -226,13 +295,14 @@ export default function App() {
   const normalizedFilter = reportFilter.trim().toLowerCase();
   const filteredReports = reports.filter((item) => !normalizedFilter || [item.title, item.symbol, item.market, item.kind]
     .some((value) => String(value ?? '').toLowerCase().includes(normalizedFilter)));
+  const stockReports = reports.filter((item) => item.kind === 'stock');
 
   return (
     <main className="app">
       <aside className="nav">
         <div className="brand"><span className="brand-mark"><Database size={18} /></span><span>Trading<br />Journal</span></div>
         {nav.map(([key, label, icon]) => (
-          <button key={key} className={page === key ? 'active' : ''} onClick={() => setPage(key)}>{icon}{label}</button>
+          <button key={key} className={page === key ? 'active' : ''} onClick={() => navigateTo(key)}>{icon}{label}</button>
         ))}
         <div className={`engine ${engineStatus}`}>
           <span />
@@ -273,14 +343,37 @@ export default function App() {
         )}
 
         {page === 'watchlist' && (
-          <View title="自选股" subtitle="适合每日自动运行的固定分析流水线。">
-            <label className="symbol-field">
+          <View title="自选股" subtitle="逐只维护关注标的，随时刷新最新分析报告。">
+            <label className="symbol-field compact">
               <span>股票代码</span>
-              <small>格式：A 股输入 6 位代码，如 600519；港股可输入 HK1810、HK01810 或 700.HK；美股输入字母代码，如 AAPL。多个代码用逗号或空格分隔。</small>
-              <textarea value={watchlistText} onChange={(e) => setWatchlistText(e.target.value)} />
+              <div className="symbol-input-row">
+                <input
+                  value={watchlistSymbol}
+                  onChange={(event) => setWatchlistSymbol(event.target.value)}
+                  onKeyDown={(event) => { if (event.key === 'Enter') { event.preventDefault(); addWatchlistSymbol(); } }}
+                  placeholder="例如 600519、HK0700 或 AAPL"
+                />
+                <button className="primary" disabled={isBusy('watchlist-add') || !watchlistSymbol.trim()} onClick={addWatchlistSymbol}><Plus size={16} /> 添加</button>
+              </div>
+              <small>每次添加一只股票；已有报告会直接载入，没有报告时会自动生成。</small>
             </label>
-            <button className="primary" disabled={isBusy('watchlist')} onClick={analyzeWatchlist}><Play size={16} /> {isBusy('watchlist') ? '正在分析自选股…' : '运行自选股分析'}</button>
-            {watchlistResult && <Panel title="评分排序">{watchlistResult.items.map((item: StockReport) => <StockCard key={item.symbol} report={item} onSelect={() => openStockReport(item)} />)}</Panel>}
+            {watchlistMessage && <p className="inline-status">{watchlistMessage}</p>}
+            <Panel
+              title={`自选列表（${watchlistItems.length}）`}
+              action={<button className="ghost" disabled={isBusy('watchlist-refresh-all') || watchlistItems.length === 0} onClick={refreshAllWatchlist}><RefreshCw size={16} /> {isBusy('watchlist-refresh-all') ? '刷新中…' : '全部刷新'}</button>}
+            >
+              {watchlistItems.length > 0
+                ? <div className="watchlist-list">{watchlistItems.map((item) => <WatchlistRow
+                    key={item.symbol}
+                    item={item}
+                    refreshing={isBusy(`watchlist-refresh-${item.symbol}`)}
+                    removing={isBusy(`watchlist-remove-${item.symbol}`)}
+                    onOpen={() => item.latest_report && openStockReport(item.latest_report)}
+                    onRefresh={() => refreshWatchlistSymbol(item.symbol)}
+                    onRemove={() => removeWatchlistSymbol(item.symbol)}
+                  />)}</div>
+                : <Empty text="暂无自选股票，请先添加一个股票代码。" />}
+            </Panel>
           </View>
         )}
 
@@ -294,8 +387,17 @@ export default function App() {
               </div>
               <small>A 股：6 位代码，如 600519；港股：如 HK1810、HK01810 或 700.HK；美股：字母代码，如 AAPL。</small>
             </label>
-            {stockReport?.id && <button className="danger report-delete" disabled={isBusy(`delete-${stockReport.id}`)} onClick={() => deleteReport(stockReport.id!)}><Trash2 size={16} /> 删除这份报告及追踪任务</button>}
-            {stockReport ? <StockReportView report={stockReport} /> : <Empty text="先运行一次个股分析或从首页选择历史报告。" />}
+            {stockReport && (
+              <div className="report-actions">
+                <button className="ghost" onClick={() => setStockReport(null)}><ArrowLeft size={16} /> 返回列表</button>
+                {stockReport.id && <button className="danger report-delete" disabled={isBusy(`delete-${stockReport.id}`)} onClick={() => deleteReport(stockReport.id!)}><Trash2 size={16} /> 删除这份报告及追踪任务</button>}
+              </div>
+            )}
+            {stockReport
+              ? <StockReportView report={stockReport} />
+              : stockReports.length > 0
+                ? <Panel title={`个股报告（${stockReports.length}）`}>{stockReports.map((item) => <ReportRow key={item.id} item={item} onOpen={() => openReport(item)} />)}</Panel>
+                : <Empty text="先运行一次个股报告。" />}
           </View>
         )}
 
@@ -309,10 +411,35 @@ export default function App() {
         )}
 
         {page === 'chat' && (
-          <View title="问股" subtitle="开放式问题和报告追问会使用轻量 ReAct 工具循环。">
-            <textarea value={chatText} onChange={(e) => setChatText(e.target.value)} />
-            <button className="primary" disabled={isBusy('chat')} onClick={ask}><Bot size={16} /> {isBusy('chat') ? '正在回答…' : '提问'}</button>
-            {chat && <Panel title="回答"><pre>{chat.content}</pre><pre>{JSON.stringify(chat.card, null, 2)}</pre></Panel>}
+          <View title="问股" subtitle="围绕股票、市场和持仓连续追问，系统会自动继承当前对话。">
+            <section className="chat-shell">
+              <div className="chat-toolbar">
+                <div><Bot size={18} /><strong>{complexityLabel(systemSettings.agent_complexity)}分析</strong><span>{formatAgentNames(activeProfile(agentProfiles, systemSettings.agent_complexity)?.agents)}</span></div>
+                {chatMessages.length > 0 && <button className="ghost icon-button" title="清空对话" onClick={() => setChatMessages([])}><Trash2 size={16} /></button>}
+              </div>
+              <div className="chat-thread">
+                {chatMessages.length === 0 && <Empty text="可以从股票代码开始，例如“600519 最近风险大吗？”，回答后继续问“那止损放哪里？”即可。" />}
+                {chatMessages.map((message, index) => (
+                  <article key={index} className={`chat-message ${message.role} ${message.status === 'refused' ? 'refused' : ''}`}>
+                    <span>{message.role === 'user' ? '你' : '研究助手'}</span>
+                    <p>{message.content}</p>
+                    {message.card?.agents?.length ? <small>参与分析：{formatAgentNames(message.card.agents, '、')}</small> : null}
+                  </article>
+                ))}
+                {isBusy('chat') && <article className="chat-message assistant pending"><span>研究助手</span><p>正在整理行情、技术与风险证据…</p></article>}
+              </div>
+              <div className="chat-composer">
+                <textarea
+                  value={chatText}
+                  onChange={(event) => setChatText(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); ask(); }
+                  }}
+                  placeholder="输入股票代码和问题，Enter 发送，Shift + Enter 换行"
+                />
+                <button className="primary icon-button" title="发送" disabled={isBusy('chat') || !chatText.trim()} onClick={ask}><Send size={18} /></button>
+              </div>
+            </section>
           </View>
         )}
 
@@ -349,9 +476,25 @@ export default function App() {
               </div>
             </Panel>
 
+            <Panel title="问股分析复杂度">
+              <div className="agent-profile-grid">
+                {agentProfiles.map((profile) => (
+                  <button
+                    key={profile.key}
+                    className={`agent-profile ${systemSettings.agent_complexity === profile.key ? 'active' : ''}`}
+                    onClick={() => setSystemSettings({ ...systemSettings, agent_complexity: profile.key, agent_max_steps: String(profile.max_steps) })}
+                  >
+                    <span><strong>{profile.name}</strong><em>最多 {profile.max_steps} 步</em></span>
+                    <p>{profile.description}</p>
+                    <small>{formatAgentNames(profile.agents)}</small>
+                  </button>
+                ))}
+              </div>
+            </Panel>
+
             <Panel title="本地执行参数">
               <div className="settings-form compact">
-                <p>数据源按能力自动降级：A 股 Tushare → AkShare → Yahoo；港/美股 Yahoo → Alpha Vantage。不会使用 sample 数据。</p>
+                <p>数据源会按可用性自动降级：A 股 Tushare → AkShare → Yahoo；港/美股 Yahoo → Alpha Vantage。</p>
                 <label>
                   <span>Tushare Token</span>
                   <input
@@ -371,12 +514,12 @@ export default function App() {
                   />
                 </label>
                 <label>
-                  <span>NewsAPI Key</span>
+                  <span>NewsAPI.org Key</span>
                   <input
                     type="password"
                     value={systemSettings.news_api_key}
                     onChange={(event) => setSystemSettings({ ...systemSettings, news_api_key: event.target.value })}
-                    placeholder="新闻源，可选"
+                    placeholder="NewsAPI.org 新闻源（可选）"
                   />
                 </label>
                 <label>
@@ -385,7 +528,7 @@ export default function App() {
                     type="password"
                     value={systemSettings.tavily_api_key}
                     onChange={(event) => setSystemSettings({ ...systemSettings, tavily_api_key: event.target.value })}
-                    placeholder="新闻搜索补充，可选"
+                    placeholder="补充新闻与网页检索（可选）"
                   />
                 </label>
                 <label>
@@ -394,7 +537,7 @@ export default function App() {
                     type="password"
                     value={systemSettings.brave_search_api_key}
                     onChange={(event) => setSystemSettings({ ...systemSettings, brave_search_api_key: event.target.value })}
-                    placeholder="搜索降级来源，可选"
+                    placeholder="备用网页搜索（可选）"
                   />
                 </label>
                 <label className="toggle-row">
@@ -442,12 +585,45 @@ function Panel(props: { title: string; action?: React.ReactNode; children: React
   return <section className="panel"><div className="panel-heading"><h2>{props.title}</h2>{props.action}</div>{props.children}</section>;
 }
 
+function activeProfile(profiles: AgentProfile[], complexity: SystemSettings['agent_complexity']) {
+  return profiles.find((profile) => profile.key === complexity);
+}
+
+function complexityLabel(value: SystemSettings['agent_complexity']) {
+  return { quick: '快速', standard: '标准', deep: '深度' }[value] ?? '标准';
+}
+
+function formatAgentNames(agents: string[] | undefined, separator = ' · ') {
+  return (agents ?? []).map((name) => name.replace(/\s*Agent$/i, '')).join(separator);
+}
+
 function Kpi(props: { label: string; value: string; tone?: 'blue' | 'amber' | 'violet' }) {
   return <div className={`kpi ${props.tone ?? 'blue'}`}><span>{props.label}</span><strong>{props.value}</strong></div>;
 }
 
 function ReportRow({ item, onOpen }: { item: ReportRecord; onOpen: () => void }) {
   return <button className="report-row" onClick={onOpen}><strong>{item.title}</strong><span>{item.score}/100</span><em>{formatLocalTime(item.created_at)}</em></button>;
+}
+
+function WatchlistRow(props: {
+  item: WatchlistItem;
+  refreshing: boolean;
+  removing: boolean;
+  onOpen: () => void;
+  onRefresh: () => void;
+  onRemove: () => void;
+}) {
+  const report = props.item.latest_report;
+  return <article className="watchlist-row">
+    <button className="watchlist-report" disabled={!report} onClick={props.onOpen}>
+      <span><strong>{props.item.symbol}</strong><small>{report ? `更新于 ${formatLocalTime(report.created_at ?? report.date)}` : '暂无报告'}</small></span>
+      {report && <><em>{report.score}/100</em><p>{report.action}</p></>}
+    </button>
+    <div className="watchlist-actions">
+      <button className="ghost" disabled={props.refreshing} onClick={props.onRefresh}><RefreshCw size={15} /> {props.refreshing ? '刷新中…' : '刷新报告'}</button>
+      <button className="ghost remove" disabled={props.removing} onClick={props.onRemove}><X size={15} /> 移出</button>
+    </div>
+  </article>;
 }
 
 function TrackingRow({ item }: { item: TrackingItem }) {
@@ -458,10 +634,6 @@ function TrackingRow({ item }: { item: TrackingItem }) {
     <div><small>目标 / 止损</small><strong>{item.target_price ?? '-'} / {item.stop_price ?? '-'}</strong></div>
     <em className={item.pnl_pct >= 0 ? 'positive' : 'negative'}>{item.pnl_pct >= 0 ? '+' : ''}{item.pnl_pct}%</em>
   </div>;
-}
-
-function StockCard({ report, onSelect }: { report: StockReport; onSelect: () => void }) {
-  return <button className="stock-card" onClick={onSelect}><strong>{report.symbol}</strong><span>{report.score}/100</span><em>{report.action}</em></button>;
 }
 
 function StockReportView({ report }: { report: StockReport }) {

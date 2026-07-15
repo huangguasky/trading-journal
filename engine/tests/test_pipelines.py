@@ -1,5 +1,6 @@
 from engine.analysis.market_pipeline import MarketPipeline
 from engine.analysis.stock_pipeline import StockPipeline
+from engine.analysis.watchlist import WatchlistService
 from engine.storage.db import Database
 from engine.data.enrichment import EnrichmentBundle
 from engine.data.news_data import NewsBundle
@@ -81,6 +82,45 @@ def test_watchlist_replaces_previous_items_and_preserves_order(tmp_path):
     db.upsert_watchlist(["AAPL", "600519", "AAPL"])
 
     assert [item["symbol"] for item in db.list_watchlist()] == ["AAPL", "600519"]
+
+
+def test_watchlist_add_reuses_latest_report_and_deduplicates_aliases(tmp_path):
+    db = Database(tmp_path / "watchlist-existing.db")
+    db.add_watchlist("HK00700")
+    report_id = db.save_report(
+        "stock", "HK0700 个股分析报告", 88, {"symbol": "HK0700", "score": 88},
+        "# report", symbol="HK0700", market="hk",
+    )
+    analyze_calls = []
+
+    result = WatchlistService(db, lambda symbol: analyze_calls.append(symbol)).add("700.HK")
+
+    assert result["created_report"] is False
+    assert result["latest_report"]["id"] == report_id
+    assert [item["symbol"] for item in result["items"]] == ["HK0700"]
+    assert analyze_calls == []
+
+
+def test_watchlist_add_creates_missing_report_once_and_remove_handles_alias(tmp_path):
+    db = Database(tmp_path / "watchlist-new.db")
+    analyze_calls = []
+
+    def analyze(symbol):
+        analyze_calls.append(symbol)
+        db.save_report(
+            "stock", f"{symbol} 个股分析报告", 75, {"symbol": symbol, "score": 75},
+            "# report", symbol=symbol, market="cn",
+        )
+
+    service = WatchlistService(db, analyze)
+    first = service.add("600519")
+    second = service.add("SH600519")
+
+    assert first["created_report"] is True
+    assert second["created_report"] is False
+    assert analyze_calls == ["SH600519"]
+    assert service.remove("600519") == []
+    assert db.list_reports(limit=None) != []
 
 
 def test_market_pipeline_schema(tmp_path):

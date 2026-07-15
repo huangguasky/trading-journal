@@ -5,13 +5,15 @@ import re
 from dataclasses import replace
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any
-from urllib.parse import parse_qs, urlparse
+from urllib.parse import parse_qs, unquote, urlparse
 
 from engine.agent.loop import run_agent_loop
+from engine.agent.profiles import serialize_agent_profiles
 from engine.agent.tools import ToolRegistry
 from engine.analysis.market_pipeline import MarketPipeline
 from engine.analysis.stock_pipeline import StockPipeline
 from engine.analysis.tracking import TrackingService
+from engine.analysis.watchlist import WatchlistService
 from engine.config import get_settings
 from engine.data.market_data import MarketData
 from engine.data.news_data import NewsData
@@ -42,7 +44,7 @@ class Handler(BaseHTTPRequestHandler):
                 limit = int(query["limit"][0]) if "limit" in query else None
                 self.send_json({"items": db.list_reports(limit=limit)})
             elif path == "/watchlist":
-                self.send_json({"items": db.list_watchlist()})
+                self.send_json({"items": WatchlistService(db).list_items()})
             elif path == "/tracking":
                 symbol = query.get("symbol", [None])[0]
                 self.send_json({"items": TrackingService(db, build_market_data(db.get_system_settings())).snapshot(symbol)})
@@ -51,7 +53,8 @@ class Handler(BaseHTTPRequestHandler):
             elif path == "/dashboard":
                 self.send_json(build_dashboard())
             elif path == "/settings":
-                self.send_json({"settings": db.get_system_settings(), "llm_ready": is_llm_ready(db.get_system_settings())})
+                values = db.get_system_settings()
+                self.send_json({"settings": values, "llm_ready": is_llm_ready(values), "agent_profiles": serialize_agent_profiles()})
             else:
                 self.send_json({"error": "not_found"}, 404)
         except Exception as exc:
@@ -65,6 +68,9 @@ class Handler(BaseHTTPRequestHandler):
             if match:
                 deleted = db.delete_report(int(match.group(1)))
                 self.send_json({"deleted": deleted}, 200 if deleted else 404)
+            elif re.fullmatch(r"/watchlist/.+", path):
+                symbol = unquote(path.removeprefix("/watchlist/"))
+                self.send_json({"items": WatchlistService(db).remove(symbol)})
             else:
                 self.send_json({"error": "not_found"}, 404)
         except Exception as exc:
@@ -87,14 +93,17 @@ class Handler(BaseHTTPRequestHandler):
                 result = run_agent_loop(str(body.get("message", "")), ToolRegistry(
                     db, runtime_settings.tool_timeout_s,
                     market_data=build_market_data(values), news_data=build_news_data(values),
-                ), runtime_settings)
+                ), runtime_settings, complexity=values.get("agent_complexity", "standard"), history=body.get("history"))
                 self.send_json(result.__dict__)
             elif path == "/watchlist":
                 db.upsert_watchlist(list(body.get("symbols", [])))
-                self.send_json({"items": db.list_watchlist()})
+                self.send_json({"items": WatchlistService(db).list_items()})
+            elif path == "/watchlist/add":
+                pipeline = build_stock_pipeline()
+                self.send_json(WatchlistService(db, lambda symbol: pipeline.analyze(symbol, save=True)).add(str(body.get("symbol", ""))))
             elif path == "/settings":
                 updated = db.update_system_settings(body)
-                self.send_json({"settings": updated, "llm_ready": is_llm_ready(updated)})
+                self.send_json({"settings": updated, "llm_ready": is_llm_ready(updated), "agent_profiles": serialize_agent_profiles()})
             else:
                 self.send_json({"error": "not_found"}, 404)
         except Exception as exc:

@@ -22,6 +22,7 @@ DEFAULT_SYSTEM_SETTINGS = {
     "social_sentiment_enabled": "true",
     "tool_timeout_s": "8",
     "agent_max_steps": "5",
+    "agent_complexity": "standard",
 }
 
 
@@ -59,6 +60,24 @@ class Database:
                     "insert into watchlist(symbol, enabled, created_at) values(?, 1, ?)",
                     (symbol, now_cn_text()),
                 )
+
+    def add_watchlist(self, symbol: str) -> None:
+        """Add or re-enable one watchlist symbol without replacing other entries."""
+        value = str(symbol).strip()
+        if not value:
+            raise ValueError("symbol is required")
+        with self.connect() as conn:
+            conn.execute(
+                "insert into watchlist(symbol, enabled, created_at) values(?, 1, ?) "
+                "on conflict(symbol) do update set enabled=1",
+                (value, now_cn_text()),
+            )
+
+    def remove_watchlist(self, symbol: str) -> bool:
+        """Remove one exact symbol from the watchlist."""
+        with self.connect() as conn:
+            result = conn.execute("delete from watchlist where symbol=?", (str(symbol).strip(),))
+            return result.rowcount > 0
 
     def list_watchlist(self) -> list[dict[str, Any]]:
         """Return watchlist entries in their persisted order."""
@@ -161,4 +180,7 @@ def normalize_setting_value(key: str, value: Any) -> str:
     """Normalize booleans and scalar setting values for text storage."""
     if key in {"social_sentiment_enabled"}:
         return "true" if value in {True, "true", "1", 1, "on", "yes"} else "false"
+    if key == "agent_complexity":
+        normalized = str(value or "").strip().lower()
+        return normalized if normalized in {"quick", "standard", "deep"} else "standard"
     return str(value or "").strip()
