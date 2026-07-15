@@ -20,6 +20,17 @@ def normalize_symbol(value: str) -> Symbol:
         raise ValueError("symbol is required")
     text = raw.upper().replace(" ", "")
 
+    # Stable aliases used by market-wide reports.  They keep index symbols in
+    # the correct market while exposing the actual Yahoo ticker to providers.
+    index_aliases = {
+        "HK800000": ("hk", "HK恒生指数", "^HSI"),
+        "HK800700": ("hk", "HK恒生科技", "^HSTECH"),
+        "HK800100": ("hk", "HK国企指数", "^HSCE"),
+    }
+    if text in index_aliases:
+        market, display, provider_code = index_aliases[text]
+        return Symbol(raw, market, display, provider_code)
+
     hk_prefix = re.fullmatch(r"HK(\d{1,5})", text)
     if hk_prefix:
         digits = normalize_hk_digits(hk_prefix.group(1))

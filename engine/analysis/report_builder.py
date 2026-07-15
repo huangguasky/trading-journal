@@ -19,7 +19,8 @@ def build_stock_report(payload: dict) -> tuple[dict, str]:
     action = apply_decision_guardrail(action_for(score, indicators, evidence), decision_limits)
     plan = build_operation_plan(quote, indicators, score, core_strategies)
     plan = apply_plan_guardrail(plan, decision_limits)
-    risk_items = risk_flags(indicators, evidence.get("conflicts", []), core_strategies)
+    language_analysis = (payload.get("intelligence", {}).get("language_analysis", {}).get("analysis") or {})
+    risk_items = risk_flags(indicators, evidence.get("conflicts", []), core_strategies, language_analysis.get("risks", []))
     report = {
         "type": "stock_report",
         "symbol": payload["symbol"],
@@ -66,6 +67,7 @@ def build_market_report(payload: dict) -> tuple[dict, str]:
         "sector_rotation": payload["sector_rotation"],
         "macro_news": payload["macro_news"],
         "news_intelligence": payload.get("news_intelligence", {}),
+        "language_analysis": payload.get("language_analysis", {}),
         "market_dimensions": payload.get("market_dimensions", {}),
         "risk_flags": payload["risk_flags"],
         "tomorrow_watch": payload["tomorrow_watch"],
@@ -145,11 +147,12 @@ def position_hint(score: float, atr_pct: float) -> str:
     return "正常仓位"
 
 
-def risk_flags(indicators: dict, conflicts: list[str], strategies: list[dict]) -> list[str]:
+def risk_flags(indicators: dict, conflicts: list[str], strategies: list[dict], language_risks: list[str] | None = None) -> list[str]:
     """Collect technical, evidence, and strategy risks for the report."""
     flags = list(conflicts)
     for strategy in strategies:
         flags.extend(strategy.get("risks", [])[:2])
+    flags.extend((language_risks or [])[:4])
     if indicators["momentum"]["rsi14"] > 75:
         flags.append("RSI 进入偏热区，短线不宜情绪化追高。")
     if indicators["levels"]["atr_pct"] > 5:
@@ -320,7 +323,25 @@ def render_intelligence(data: dict) -> str:
     social = data.get("social_sentiment") or {}
     if social:
         summary += f"\n- 社交情绪：{social.get('score')}/100，近 7 日提及 {social.get('mentions')} 条（低权重辅助）。"
+    summary += render_language_analysis(data.get("language_analysis", {}))
     return summary
+
+
+def render_language_analysis(enhancement: dict) -> str:
+    """Render optional semantic analysis with its fallback status visible."""
+    status = enhancement.get("status", "disabled")
+    if status != "enhanced":
+        note = (enhancement.get("notes") or ["使用规则分析。"])[:1]
+        return f"\n- 自然语言增强：未使用（{note[0]}）"
+    analysis = enhancement.get("analysis") or {}
+    lines = [f"\n- LLM 语义摘要：{analysis.get('summary', '未提供摘要')}" ]
+    if analysis.get("news_direction"):
+        lines.append(f"- 事件方向：{analysis.get('news_direction')}，影响周期：{analysis.get('impact_horizon', 'unknown')}")
+    for label, key in (("催化", "catalysts"), ("语义风险", "risks"), ("证据冲突", "conflicts")):
+        values = analysis.get(key) or []
+        if values:
+            lines.append(f"- {label}：" + "；".join(values[:3]))
+    return "\n".join(lines)
 
 
 def render_market_context(data: dict) -> str:
@@ -341,6 +362,7 @@ def render_market_markdown(report: dict) -> str:
     dimensions = report.get("market_dimensions", {})
     plan = report.get("trading_plan", {})
     quality = render_quality({"market": report.get("data_quality", {})})
+    language_analysis = render_market_language_analysis(report.get("language_analysis", {}))
     return f"""# {market_label(report['market'])}市场复盘
 
 生成日期：{report['date']}
@@ -370,6 +392,9 @@ def render_market_markdown(report: dict) -> str:
 ## 5. 宏观与事件
 {news}
 
+自然语言增强：
+{language_analysis}
+
 ## 6. 风险提示
 {risks}
 
@@ -386,6 +411,19 @@ def render_market_markdown(report: dict) -> str:
 ## 9. 数据质量与边界
 {quality}
 """
+
+
+def render_market_language_analysis(enhancement: dict) -> str:
+    if enhancement.get("status") != "enhanced":
+        return "- " + str((enhancement.get("notes") or ["使用规则分析。"])[0])
+    analysis = enhancement.get("analysis") or {}
+    lines = [f"- 语义摘要：{analysis.get('summary', '未提供摘要')}"]
+    lines.append(f"- 事件方向：{analysis.get('news_direction', 'unknown')}，影响周期：{analysis.get('impact_horizon', 'unknown')}")
+    for label, key in (("宏观驱动", "macro_drivers"), ("板块催化", "sector_catalysts"), ("证据冲突", "conflicts")):
+        values = analysis.get(key) or []
+        if values:
+            lines.append(f"- {label}：" + "；".join(values[:3]))
+    return "\n".join(lines)
 
 
 def format_market_news(item: dict) -> str:

@@ -660,6 +660,43 @@ code {
   background: rgba(255, 255, 255, .48);
 }
 
+.modal-backdrop {
+  position: fixed;
+  z-index: 1000;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgba(19, 31, 48, .48);
+  backdrop-filter: blur(4px);
+}
+
+.confirm-modal {
+  width: min(420px, 100%);
+  padding: 26px;
+  border: 1px solid rgba(255, 255, 255, .72);
+  border-radius: 20px;
+  background: #fff;
+  box-shadow: 0 24px 70px rgba(21, 36, 55, .24);
+  text-align: center;
+}
+
+.confirm-modal-icon {
+  display: grid;
+  place-items: center;
+  width: 48px;
+  height: 48px;
+  margin: 0 auto 14px;
+  border-radius: 50%;
+  color: var(--rose);
+  background: rgba(211, 76, 96, .1);
+}
+
+.confirm-modal h3 { margin: 0 0 8px; color: #263b51; }
+.confirm-modal p { margin: 0; color: var(--muted); line-height: 1.6; }
+.confirm-modal-actions { display: flex; justify-content: center; gap: 12px; margin-top: 22px; }
+.confirm-modal-actions button { min-width: 112px; justify-content: center; }
+
 @media (max-width: 980px) {
   .app, .report-layout, .kpi-grid, .settings-grid, .agent-profile-grid { grid-template-columns: 1fr; }
   .settings-form, .settings-form.compact { grid-template-columns: 1fr; }

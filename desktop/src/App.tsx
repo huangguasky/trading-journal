@@ -45,7 +45,6 @@ type SystemSettings = {
   openai_api_key: string;
   openai_base_url: string;
   openai_model: string;
-  tushare_token: string;
   alpha_vantage_key: string;
   news_api_key: string;
   tavily_api_key: string;
@@ -98,11 +97,13 @@ export default function App() {
   const [reports, setReports] = useState<ReportRecord[]>([]);
   const [reportFilter, setReportFilter] = useState('');
   const [engineStatus, setEngineStatus] = useState<'checking' | 'online' | 'offline'>('checking');
+  const [engineProblem, setEngineProblem] = useState('');
+  const [pendingDeleteId, setPendingDeleteId] = useState<number | null>(null);
+  const [deleteError, setDeleteError] = useState('');
   const [systemSettings, setSystemSettings] = useState<SystemSettings>({
     openai_api_key: '',
     openai_base_url: '',
     openai_model: 'gpt-4o-mini',
-    tushare_token: '',
     alpha_vantage_key: '',
     news_api_key: '',
     tavily_api_key: '',
@@ -133,11 +134,7 @@ export default function App() {
 
   async function refreshDashboard() {
     try {
-      const [data, reportData] = await Promise.all([
-        getJson<Dashboard>('/dashboard'),
-        getJson<{ items: ReportRecord[] }>('/reports')
-      ]);
-      setDashboard(data);
+      const reportData = await getJson<{ items: ReportRecord[] }>('/reports');
       setReports(reportData.items);
       if (!initialMarketLoaded.current) {
         initialMarketLoaded.current = true;
@@ -146,8 +143,18 @@ export default function App() {
         setMarketReport(latestCnReport ? { ...latestCnReport.payload, id: latestCnReport.id, created_at: latestCnReport.created_at } as MarketReport : null);
       }
       setEngineStatus('online');
-    } catch {
+      setEngineProblem('');
+    } catch (error) {
       setEngineStatus('offline');
+      setEngineProblem(error instanceof Error ? error.message : '本地 Python 引擎未连接。');
+      return;
+    }
+
+    try {
+      setDashboard(await getJson<Dashboard>('/dashboard'));
+    } catch {
+      // Reports remain usable when quote refresh for dashboard tracking fails.
+      setDashboard(null);
     }
   }
 
@@ -281,14 +288,28 @@ export default function App() {
   }
 
   async function deleteReport(reportId: number) {
-    if (!window.confirm('确定删除这份报告吗？对应的追踪任务也会一并删除。')) return;
+    if (pendingDeleteId !== reportId) {
+      setDeleteError('');
+      setPendingDeleteId(reportId);
+      return;
+    }
     const deletingStockReport = stockReport?.id === reportId;
     await run(`delete-${reportId}`, async () => {
-      await deleteJson(`/reports/${reportId}`);
-      if (stockReport?.id === reportId) setStockReport(null);
-      if (marketReport?.id === reportId) setMarketReport(null);
-      setPage(deletingStockReport ? 'stock' : 'dashboard');
-      await refreshDashboard();
+      try {
+        const result = await deleteJson<{ deleted: boolean }>(`/reports/${reportId}`);
+        if (!result.deleted) throw new Error('引擎未删除该报告，报告可能已经不存在。');
+        setReports((current) => current.filter((item) => item.id !== reportId));
+        if (stockReport?.id === reportId) setStockReport(null);
+        if (marketReport?.id === reportId) setMarketReport(null);
+        setPendingDeleteId(null);
+        setDeleteError('');
+        setPage(deletingStockReport ? 'stock' : 'dashboard');
+        await refreshDashboard();
+      } catch (error) {
+        setPendingDeleteId(null);
+        const message = error instanceof Error ? error.message : '未知错误';
+        setDeleteError(`删除报告失败：${message}`);
+      }
     });
   }
 
@@ -337,7 +358,7 @@ export default function App() {
               {filteredReports.map((item) => <ReportRow key={item.id} item={item} onOpen={() => openReport(item)} />)}
               {reports.length > 0 && filteredReports.length === 0 && <Empty text="没有符合筛选条件的报告。" />}
               {reports.length === 0 && engineStatus !== 'offline' && <Empty text="暂无报告。" />}
-              {engineStatus === 'offline' && <Empty text="本地 Python 引擎未连接。界面可以正常使用，启动 engine.app 后数据会自动恢复。" />}
+              {engineStatus === 'offline' && <Empty text={engineProblem || '本地 Python 引擎未连接。完全退出并重新打开应用后数据会自动恢复。'} />}
             </Panel>
           </View>
         )}
@@ -391,6 +412,7 @@ export default function App() {
               <div className="report-actions">
                 <button className="ghost" onClick={() => setStockReport(null)}><ArrowLeft size={16} /> 返回列表</button>
                 {stockReport.id && <button className="danger report-delete" disabled={isBusy(`delete-${stockReport.id}`)} onClick={() => deleteReport(stockReport.id!)}><Trash2 size={16} /> 删除这份报告及追踪任务</button>}
+                {deleteError && <p>{deleteError}</p>}
               </div>
             )}
             {stockReport
@@ -406,6 +428,7 @@ export default function App() {
             <div className="segmented">{['cn', 'hk', 'us'].map((m) => <button key={m} className={market === m ? 'active' : ''} onClick={() => selectMarket(m)}>{m.toUpperCase()}</button>)}</div>
             <button className="primary" disabled={isBusy('market')} onClick={analyzeMarket}>{isBusy('market') ? '生成复盘中…' : '生成市场复盘'}</button>
             {marketReport?.id && <button className="danger report-delete" disabled={isBusy(`delete-${marketReport.id}`)} onClick={() => deleteReport(marketReport.id!)}><Trash2 size={16} /> 删除这份报告</button>}
+            {deleteError && <p>{deleteError}</p>}
             {marketReport ? <MarketView report={marketReport} /> : <Empty text="运行一次市场复盘。" />}
           </View>
         )}
@@ -445,9 +468,9 @@ export default function App() {
 
         {page === 'settings' && (
           <View title="设置" subtitle="模型、数据源、自动任务和策略开关。">
-            <Panel title="LLM 问股配置">
+            <Panel title="LLM 配置">
               <div className="settings-form">
-                <p>填写 Key 后自动尝试使用；调用失败或返回无效时自动使用本地回答。<em>{llmReady ? ' 已配置' : ' 未配置'}</em></p>
+                <p>用于问股回答和分析报告的自然语言增强；失败时自动回退到规则分析。<em>{llmReady ? ' 已配置' : ' 未配置'}</em></p>
                 <label>
                   <span>OpenAI API Key</span>
                   <input
@@ -494,16 +517,7 @@ export default function App() {
 
             <Panel title="本地执行参数">
               <div className="settings-form compact">
-                <p>数据源会按可用性自动降级：A 股 Tushare → AkShare → Yahoo；港/美股 Yahoo → Alpha Vantage。</p>
-                <label>
-                  <span>Tushare Token</span>
-                  <input
-                    type="password"
-                    value={systemSettings.tushare_token}
-                    onChange={(event) => setSystemSettings({ ...systemSettings, tushare_token: event.target.value })}
-                    placeholder="A股增强数据，可选"
-                  />
-                </label>
+                <p>数据源会按可用性自动降级：A 股 Yahoo → AkShare；港/美股 Yahoo → Alpha Vantage。</p>
                 <label>
                   <span>Alpha Vantage Key</span>
                   <input
@@ -571,6 +585,22 @@ export default function App() {
               {settingsSaved && <span>{settingsSaved}</span>}
             </div>
           </View>
+        )}
+
+        {pendingDeleteId !== null && (
+          <div className="modal-backdrop" role="presentation" onClick={() => setPendingDeleteId(null)}>
+            <div className="confirm-modal" role="dialog" aria-modal="true" aria-labelledby="delete-dialog-title" onClick={(event) => event.stopPropagation()}>
+              <div className="confirm-modal-icon"><Trash2 size={22} /></div>
+              <h3 id="delete-dialog-title">确认删除报告？</h3>
+              <p>删除后无法恢复，对应的追踪任务也会一并删除。</p>
+              <div className="confirm-modal-actions">
+                <button className="ghost" onClick={() => setPendingDeleteId(null)}>取消</button>
+                <button className="danger" disabled={isBusy(`delete-${pendingDeleteId}`)} onClick={() => deleteReport(pendingDeleteId)}>
+                  {isBusy(`delete-${pendingDeleteId}`) ? '删除中…' : '确认删除'}
+                </button>
+              </div>
+            </div>
+          </div>
         )}
       </section>
     </main>

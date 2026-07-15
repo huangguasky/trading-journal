@@ -168,6 +168,37 @@ The chat model does not freely call providers: intent parsing and the selected
 profile determine an allowlist, calls execute in a fixed order with a bounded
 step count and timeout, and the LLM is used only for final evidence synthesis.
 
+### Optional Natural-language Enhancement
+
+Stock and market reports use rules as the authoritative baseline. When an LLM
+key is configured, the engine automatically analyzes evidence that benefits
+from semantic reasoning:
+
+- news event direction, expectation gaps and likely impact horizon
+- social-sentiment meaning and reliability
+- relationships between fundamentals, market context and strategy evidence
+- cross-evidence conflicts, catalysts, risks and follow-up conditions
+
+The enhancement must return a validated JSON object. It can add narrative
+evidence, risks and watch conditions, but cannot change prices, technical
+indicators, market/stock scores, targets or position sizing. Missing
+configuration, empty evidence, timeout, provider failure or invalid JSON all
+fall back to the original rule result.
+
+```mermaid
+flowchart LR
+    INPUT["Verified data + source quality"] --> RULES["Deterministic rules"]
+    RULES --> BASE["Baseline classification / score / guardrails"]
+    INPUT --> CHECK{"LLM key configured?"}
+    CHECK -- "No" --> BASE
+    CHECK -- "Yes" --> LLM["Structured semantic analysis"]
+    LLM --> VALID{"Valid JSON schema?"}
+    VALID -- "No / failed" --> BASE
+    VALID -- "Yes" --> MERGE["Merge narrative evidence only"]
+    BASE --> MERGE
+    MERGE --> REPORT["Report with visible enhancement status"]
+```
+
 ## Run
 
 ### Prerequisites

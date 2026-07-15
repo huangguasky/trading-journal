@@ -14,7 +14,6 @@ DEFAULT_SYSTEM_SETTINGS = {
     "openai_api_key": "",
     "openai_base_url": "",
     "openai_model": "gpt-4o-mini",
-    "tushare_token": "",
     "alpha_vantage_key": "",
     "news_api_key": "",
     "tavily_api_key": "",

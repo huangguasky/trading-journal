@@ -6,16 +6,18 @@ from engine.storage.db import Database
 from engine.strategies.registry import StrategyRegistry
 
 from .report_builder import build_market_report
+from .llm_enhancement import NaturalLanguageEnhancer
 
 
 class MarketPipeline:
     """Coordinate market data, news, scoring, reporting, and persistence."""
-    def __init__(self, db: Database, market_data: MarketData | None = None, news_data: NewsData | None = None, strategies: StrategyRegistry | None = None):
+    def __init__(self, db: Database, market_data: MarketData | None = None, news_data: NewsData | None = None, strategies: StrategyRegistry | None = None, language_enhancer: NaturalLanguageEnhancer | None = None):
         """Initialize the pipeline with injectable services for testing or customization."""
         self.db = db
         self.market_data = market_data or MarketData()
         self.news_data = news_data or NewsData()
         self.strategies = strategies or StrategyRegistry()
+        self.language_enhancer = language_enhancer
 
     def analyze(self, market: str, save: bool = True) -> dict:
         """Analyze one market and optionally persist the structured report."""
@@ -26,19 +28,25 @@ class MarketPipeline:
         context = build_market_context(market, snapshot, score)
         dimensions = build_market_dimensions(snapshot)
         intelligence = classify_market_news(news_bundle.items)
+        regime = regime_for_score(score, snapshot)
+        language_analysis = self._enhance_language_analysis(market, news_bundle.items, intelligence, context, dimensions, regime, score, snapshot)
         trading_plan = build_trading_plan(score, snapshot, dimensions)
+        risks = market_risks(score, snapshot, news_bundle.quality)
+        watch_items = tomorrow_watch(market, snapshot, context)
+        apply_market_language_analysis(risks, watch_items, language_analysis)
         payload = {
             "market": market,
-            "market_regime": regime_for_score(score, snapshot),
+            "market_regime": regime,
             "score": score,
             "indices": snapshot["indices"],
             "breadth": snapshot["breadth"],
             "sector_rotation": snapshot["sector_rotation"],
             "macro_news": news_bundle.items,
             "news_intelligence": intelligence,
+            "language_analysis": language_analysis,
             "market_dimensions": dimensions,
-            "risk_flags": market_risks(score, snapshot, news_bundle.quality),
-            "tomorrow_watch": tomorrow_watch(market, snapshot, context),
+            "risk_flags": risks,
+            "tomorrow_watch": watch_items,
             "trading_plan": trading_plan,
             "strategy_bias": self.strategies.select_market_bias(snapshot, news_bundle.items),
             "data_quality": merge_market_quality(snapshot.get("data_quality", {}), news_bundle.quality),
@@ -50,6 +58,21 @@ class MarketPipeline:
             report["id"] = self.db.save_report("market", title, report["score"], report, markdown, market=market, regime=report["market_regime"])
         report["markdown"] = markdown
         return report
+
+    def _enhance_language_analysis(self, market: str, news: list[dict], intelligence: dict, context: dict, dimensions: dict, regime: str, score: float, snapshot: dict) -> dict:
+        """Run optional semantic analysis over market text and cross-signal context."""
+        if self.language_enhancer is None:
+            return {"status": "disabled", "mode": "规则分析", "provider": "none", "analysis": {}, "notes": ["未启用 LLM 自然语言增强。"]}
+        return self.language_enhancer.enhance_market({
+            "market": market,
+            "news": news,
+            "rule_intelligence": intelligence,
+            "market_context": context,
+            "dimensions": dimensions,
+            "regime": regime,
+            "score": score,
+            "sector_rotation": snapshot.get("sector_rotation", {}),
+        })
 
 
 def market_score(snapshot: dict) -> float:
@@ -202,3 +225,12 @@ def merge_market_quality(snapshot_quality: dict, news_quality: dict) -> dict:
         "attempts": snapshot_quality.get("items", [])[:3] + [news_quality],
         "notes": (snapshot_quality.get("notes") or []) + (news_quality.get("notes") or []),
     }
+
+
+def apply_market_language_analysis(risks: list[str], watch_items: list[str], enhancement: dict) -> None:
+    """Add semantic risks and watch items without modifying deterministic scoring."""
+    if enhancement.get("status") != "enhanced":
+        return
+    analysis = enhancement.get("analysis") or {}
+    risks[:] = list(dict.fromkeys([*risks, *analysis.get("risks", []), *analysis.get("conflicts", [])]))[:10]
+    watch_items[:] = list(dict.fromkeys([*watch_items, *analysis.get("watch_conditions", [])]))[:10]

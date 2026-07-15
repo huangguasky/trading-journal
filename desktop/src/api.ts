@@ -1,7 +1,16 @@
 const BASE = import.meta.env.DEV ? '/engine' : 'http://127.0.0.1:8765';
+const EXPECTED_ENGINE_API = '3';
+
+function validateEngine(res: Response): void {
+  const version = res.headers.get('X-Trading-Journal-Engine');
+  if (version !== EXPECTED_ENGINE_API) {
+    throw new Error('检测到旧版 Python 引擎占用端口，请完全退出并重新打开应用。');
+  }
+}
 
 export async function getJson<T>(path: string): Promise<T> {
   const res = await fetch(`${BASE}${path}`);
+  validateEngine(res);
   if (!res.ok) throw new Error(await res.text());
   return res.json();
 }
@@ -12,12 +21,14 @@ export async function postJson<T>(path: string, body: unknown): Promise<T> {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body)
   });
+  validateEngine(res);
   if (!res.ok) throw new Error(await res.text());
   return res.json();
 }
 
 export async function deleteJson<T>(path: string): Promise<T> {
   const res = await fetch(`${BASE}${path}`, { method: 'DELETE' });
+  validateEngine(res);
   if (!res.ok) throw new Error(await res.text());
   return res.json();
 }

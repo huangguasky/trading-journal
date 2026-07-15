@@ -92,7 +92,7 @@ class MarketData:
                     quality = DataQuality(provider, "ok", "high", attempts + [ProviderAttempt(provider, "ok", f"取得 {len(bars)} 根K线")], [])
                     self.last_quality[symbol.display] = quality
                     return HistoryBundle(bars[-days:], quality)
-                attempts.append(ProviderAttempt(provider, "empty", "返回数据不足 30 根K线"))
+                attempts.append(ProviderAttempt(provider, "empty", f"仅返回 {len(bars)} 根K线，至少需要 30 根"))
             except Exception as exc:
                 attempts.append(ProviderAttempt(provider, "failed", compact_error(exc)))
 
@@ -134,25 +134,24 @@ class MarketData:
     def market_snapshot(self, market: str) -> dict:
         """Build a market-wide snapshot from representative index histories."""
         symbols = {
-            "cn": ["000001", "399001", "399006", "000300"],
-            "hk": ["HK800000", "HK800700", "HK800100", "HK00700", "HK09988"],
-            "us": ["SPY", "QQQ", "DIA", "VIXY", "TLT", "UUP", "AAPL", "MSFT", "NVDA"],
-        }.get(market, ["SPY"])
-        quotes: list[dict[str, Any]] = []
+            "cn": [("SH000001", True), ("SZ399001", True), ("SZ399006", True), ("SH000300", True)],
+            "hk": [("HK800000", True), ("HK800700", True), ("HK800100", True), ("HK00700", False), ("HK09988", False)],
+            "us": [("SPY", True), ("QQQ", True), ("DIA", True), ("VIXY", True), ("TLT", True), ("UUP", True), ("AAPL", False), ("MSFT", False), ("NVDA", False)],
+        }.get(market, [("SPY", True)])
+        indices: list[dict[str, Any]] = []
+        leaders_universe: list[dict[str, Any]] = []
         qualities: list[dict[str, Any]] = []
-        for code in symbols:
+        for code, is_index in symbols:
             normalized = normalize_symbol(code)
             bundle = self.history_bundle(normalized)
             qualities.append(quality_to_dict(bundle.quality))
             if len(bundle.bars) < 2:
                 continue
-            quote, quality = self.quote_with_quality(normalized)
-            quotes.append(asdict(quote))
-        index_count = {"cn": 4, "hk": 3, "us": 6}.get(market, 3)
-        # The leading symbols represent broad indices; the remainder form a
-        # small universe used to illustrate leaders and sector rotation.
-        indices = quotes[:index_count]
-        leaders_universe = quotes[index_count:] or quotes
+            last, prev = bundle.bars[-1], bundle.bars[-2]
+            currency = {"cn": "CNY", "hk": "HKD", "us": "USD"}[normalized.market]
+            quote = asdict(Quote(normalized.display, normalized.market, normalized.display, round(last.close, 3), round((last.close / prev.close - 1) * 100, 2), currency, bundle.quality.source))
+            (indices if is_index else leaders_universe).append(quote)
+        leaders_universe = leaders_universe or indices
         scores = [max(0, min(100, 50 + item["change_pct"] * 8)) for item in indices]
         breadth = synthetic_breadth(market, scores) if scores else {"advancers": 0, "decliners": 0, "limit_up": None, "limit_down": None, "turnover_billion": None, "basis": "unavailable", "is_estimated": False}
         sector_rotation = synthetic_sector_rotation(market, scores, leaders_universe) if scores else {"leaders": [], "laggards": [], "basis": "unavailable", "is_estimated": False}
@@ -169,17 +168,17 @@ class MarketData:
         """Return configured providers that support the symbol's market."""
         selected = self.provider_order
         if selected == ["auto"]:
-            selected = ["tushare", "akshare", "yfinance", "alpha_vantage"] if symbol.market == "cn" else ["yfinance", "alpha_vantage"]
+            selected = ["yahoo", "akshare", "alpha_vantage"] if symbol.market == "cn" else ["yahoo", "alpha_vantage"]
         allowed = {
-            "cn": {"tushare", "akshare", "yfinance"},
-            "hk": {"yfinance", "alpha_vantage"},
-            "us": {"yfinance", "alpha_vantage"},
+            "cn": {"akshare", "yahoo", "alpha_vantage"},
+            "hk": {"yahoo", "alpha_vantage"},
+            "us": {"yahoo", "alpha_vantage"},
         }[symbol.market]
         return [item for item in selected if item in allowed]
 
     def missing_configuration(self, provider: str) -> str | None:
         """Return the required setting that is absent before attempting a call."""
-        required = {"tushare": ("tushare_token", "请在设置中填写 Tushare Token"), "alpha_vantage": ("alpha_vantage_key", "请在设置中填写 Alpha Vantage Key")}
+        required = {"alpha_vantage": ("alpha_vantage_key", "请在设置中填写 Alpha Vantage Key")}
         item = required.get(provider)
         return item[1] if item and not self.api_keys.get(item[0], "").strip() else None
 
@@ -187,26 +186,34 @@ class MarketData:
         """Resolve a provider name to its history-loading method."""
         return {
             "akshare": self._load_akshare,
-            "yfinance": self._load_yfinance,
-            "tushare": self._load_tushare,
+            "yahoo": self._load_yahoo,
             "alpha_vantage": self._load_alpha_vantage,
         }.get(provider)
 
-    def _load_yfinance(self, symbol: Symbol, days: int) -> list[Bar]:
-        """Load and normalize history through yfinance."""
-        import yfinance as yf
-
-        frame = yf.download(symbol.provider_code, period=f"{max(days, 30)}d", progress=False, auto_adjust=False, threads=False)
-        if frame is None or frame.empty:
+    def _load_yahoo(self, symbol: Symbol, days: int) -> list[Bar]:
+        """Load Yahoo's public chart JSON without cookie/crumb rate-limit state."""
+        ticker = urllib.parse.quote(symbol.provider_code, safe="")
+        query = urllib.parse.urlencode({"range": f"{max(3, (days * 2 + 364) // 365)}y", "interval": "1d", "events": "history"})
+        request = urllib.request.Request(
+            f"https://query1.finance.yahoo.com/v8/finance/chart/{ticker}?{query}",
+            headers={"User-Agent": "Mozilla/5.0 (TradingJournal/0.2)"},
+        )
+        with urllib.request.urlopen(request, timeout=self.timeout_s) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+        result = ((payload.get("chart") or {}).get("result") or [])
+        if not result:
             return []
+        result = result[0]
+        timestamps = result.get("timestamp") or []
+        quote = (((result.get("indicators") or {}).get("quote") or [{}])[0])
         bars: list[Bar] = []
-        for idx, row in frame.reset_index().iterrows():
-            day = str(row.get("Date") or row.get("Datetime") or idx)[:10]
-            close = safe_float(row.get("Close", 0))
+        for idx, stamp in enumerate(timestamps):
+            close = safe_float(value_at(quote.get("close"), idx))
             if close <= 0:
                 continue
-            bars.append(Bar(day, safe_float(row.get("Open", close)), safe_float(row.get("High", close)), safe_float(row.get("Low", close)), close, safe_float(row.get("Volume", 0))))
-        return bars
+            day = __import__("datetime").datetime.fromtimestamp(stamp, __import__("datetime").timezone.utc).date().isoformat()
+            bars.append(Bar(day, safe_float(value_at(quote.get("open"), idx) or close), safe_float(value_at(quote.get("high"), idx) or close), safe_float(value_at(quote.get("low"), idx) or close), close, safe_float(value_at(quote.get("volume"), idx))))
+        return bars[-days:]
 
     def _load_akshare(self, symbol: Symbol, days: int) -> list[Bar]:
         """Load and normalize history through AkShare."""
@@ -230,28 +237,6 @@ class MarketData:
             )
         return [bar for bar in bars if bar.close > 0]
 
-    def _load_tushare(self, symbol: Symbol, days: int) -> list[Bar]:
-        """Load and normalize history through Tushare."""
-        token = self.api_keys.get("tushare_token", "").strip()
-        if not token:
-            raise RuntimeError("未配置 Tushare Token")
-        if symbol.market != "cn":
-            return []
-        import tushare as ts
-
-        pro = ts.pro_api(token)
-        code = symbol.provider_code.replace(".SS", ".SH")
-        end = date.today().strftime("%Y%m%d")
-        start = (date.today() - timedelta(days=max(days * 2, 80))).strftime("%Y%m%d")
-        frame = pro.daily(ts_code=code, start_date=start, end_date=end)
-        if frame is None or frame.empty:
-            return []
-        frame = frame.sort_values("trade_date").tail(days)
-        return [
-            Bar(str(row["trade_date"]), safe_float(row["open"]), safe_float(row["high"]), safe_float(row["low"]), safe_float(row["close"]), safe_float(row.get("vol", 0)))
-            for _, row in frame.iterrows()
-        ]
-
     def _load_alpha_vantage(self, symbol: Symbol, days: int) -> list[Bar]:
         """Load and normalize daily history through Alpha Vantage."""
         key = self.api_keys.get("alpha_vantage_key", "").strip()
@@ -274,7 +259,7 @@ def parse_provider_order(value: str | list[str]) -> list[str]:
     else:
         text = str(value or "auto").strip().lower()
         raw = [part.strip() for part in text.split(",")] if "," in text else [text]
-    allowed = {"auto", "tushare", "akshare", "yfinance", "alpha_vantage"}
+    allowed = {"auto", "akshare", "yahoo", "alpha_vantage"}
     out = [item for item in raw if item in allowed]
     return out or ["auto"]
 
@@ -287,6 +272,18 @@ def safe_float(value: Any) -> float:
         return float(value or 0)
     except Exception:
         return 0.0
+
+
+def value_at(values: list[Any] | None, index: int) -> Any:
+    """Safely read a provider array that may be absent or shorter than timestamps."""
+    return values[index] if values and index < len(values) else None
+
+
+def yfinance_date_window(days: int, today: date | None = None) -> tuple[str, str]:
+    """Build a calendar window instead of unsupported arbitrary period strings."""
+    end_day = (today or date.today()) + timedelta(days=1)
+    start_day = end_day - timedelta(days=max(days * 2, 90))
+    return start_day.isoformat(), end_day.isoformat()
 
 
 def compact_error(exc: Exception) -> str:

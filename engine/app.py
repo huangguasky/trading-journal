@@ -11,6 +11,7 @@ from engine.agent.loop import run_agent_loop
 from engine.agent.profiles import serialize_agent_profiles
 from engine.agent.tools import ToolRegistry
 from engine.analysis.market_pipeline import MarketPipeline
+from engine.analysis.llm_enhancement import NaturalLanguageEnhancer
 from engine.analysis.stock_pipeline import StockPipeline
 from engine.analysis.tracking import TrackingService
 from engine.analysis.watchlist import WatchlistService
@@ -23,6 +24,7 @@ from engine.strategies.registry import StrategyRegistry
 
 settings = get_settings()
 db = Database(settings.db_path)
+ENGINE_API_VERSION = "3"
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -39,7 +41,7 @@ class Handler(BaseHTTPRequestHandler):
         query = parse_qs(urlparse(self.path).query)
         try:
             if path == "/health":
-                self.send_json({"ok": True, "service": "trading-journal-engine"})
+                self.send_json({"ok": True, "service": "trading-journal-engine", "api_version": ENGINE_API_VERSION, "market_provider": "yahoo"})
             elif path == "/reports":
                 limit = int(query["limit"][0]) if "limit" in query else None
                 self.send_json({"items": db.list_reports(limit=limit)})
@@ -123,6 +125,7 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Type", "application/json; charset=utf-8")
         self.send_header("Content-Length", str(len(raw)))
         self.send_header("Access-Control-Allow-Origin", "*")
+        self.send_header("X-Trading-Journal-Engine", ENGINE_API_VERSION)
         self.send_header("Access-Control-Allow-Headers", "Content-Type")
         self.send_header("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS")
         self.end_headers()
@@ -156,6 +159,7 @@ def build_stock_pipeline() -> StockPipeline:
         market_data=market_data,
         news_data=news_data,
         enrichment_data=EnrichmentData(timeout_s=parse_float(values.get("tool_timeout_s"), settings.tool_timeout_s)),
+        language_enhancer=build_language_enhancer(values),
     )
 
 
@@ -164,13 +168,17 @@ def build_market_pipeline() -> MarketPipeline:
     values = db.get_system_settings()
     market_data = build_market_data(values)
     news_data = build_news_data(values)
-    return MarketPipeline(db, market_data=market_data, news_data=news_data)
+    return MarketPipeline(db, market_data=market_data, news_data=news_data, language_enhancer=build_language_enhancer(values))
+
+
+def build_language_enhancer(values: dict[str, str]) -> NaturalLanguageEnhancer:
+    """Enable semantic analysis automatically whenever an LLM key is configured."""
+    return NaturalLanguageEnhancer(effective_settings(values))
 
 
 def provider_keys(values: dict[str, str]) -> dict[str, str]:
     """Extract market-provider credentials from persisted settings."""
     return {
-        "tushare_token": values.get("tushare_token", ""),
         "alpha_vantage_key": values.get("alpha_vantage_key", ""),
     }
 

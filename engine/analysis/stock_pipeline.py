@@ -13,19 +13,21 @@ from engine.storage.db import Database
 from engine.strategies.registry import StrategyRegistry
 
 from .evidence import build_stock_evidence
+from .llm_enhancement import NaturalLanguageEnhancer
 from .report_builder import build_stock_report
 from .tracking import TrackingService
 
 
 class StockPipeline:
     """Coordinate stock data, indicators, strategies, reporting, and persistence."""
-    def __init__(self, db: Database, market_data: MarketData | None = None, news_data: NewsData | None = None, strategies: StrategyRegistry | None = None, enrichment_data: EnrichmentData | None = None):
+    def __init__(self, db: Database, market_data: MarketData | None = None, news_data: NewsData | None = None, strategies: StrategyRegistry | None = None, enrichment_data: EnrichmentData | None = None, language_enhancer: NaturalLanguageEnhancer | None = None):
         """Initialize the pipeline with injectable services for testing or customization."""
         self.db = db
         self.market_data = market_data or MarketData()
         self.news_data = news_data or NewsData()
         self.strategies = strategies or StrategyRegistry()
         self.enrichment_data = enrichment_data
+        self.language_enhancer = language_enhancer
         self.tracking = TrackingService(db, self.market_data)
 
     def analyze(self, code: str, save: bool = True) -> dict:
@@ -63,7 +65,13 @@ class StockPipeline:
                 "attempts": [], "notes": ["筹码指标由近期收盘价估算，不代表真实持仓成本分布。"],
             },
         }
+        language_analysis = self._enhance_language_analysis(
+            symbol.display, news, intelligence, social_bundle.data, fundamental_bundle.data,
+            market_context, indicators, strategy_results,
+        )
+        intelligence["language_analysis"] = language_analysis
         evidence = build_stock_evidence(symbol.display, quote, indicators, news, strategy_results, data_quality)
+        apply_stock_language_evidence(evidence, language_analysis)
         report, markdown = build_stock_report(
             {
                 "symbol": symbol.display,
@@ -86,6 +94,26 @@ class StockPipeline:
             report["tracking_task_id"] = self.tracking.create_for_report(report_id, report)
         report["markdown"] = markdown
         return report
+
+    def _enhance_language_analysis(self, symbol: str, news: list[dict], intelligence: dict, social: dict, fundamentals: dict, market_context: dict, indicators: dict, strategies: list[dict]) -> dict:
+        """Run optional semantic analysis while keeping rule evidence authoritative."""
+        if self.language_enhancer is None:
+            return {"status": "disabled", "mode": "规则分析", "provider": "none", "analysis": {}, "notes": ["未启用 LLM 自然语言增强。"]}
+        return self.language_enhancer.enhance_stock({
+            "symbol": symbol,
+            "news": news,
+            "rule_intelligence": intelligence,
+            "social_sentiment": social,
+            "fundamentals": fundamentals,
+            "market_context": market_context,
+            "technical_summary": {
+                "trend": indicators.get("trend", {}),
+                "momentum": indicators.get("momentum", {}),
+                "volume": indicators.get("volume", {}),
+                "levels": indicators.get("levels", {}),
+            },
+            "strategies": strategies,
+        })
 
     def _unavailable_report(self, symbol, history_bundle, save: bool) -> dict:
         """Persist an explicit diagnostic report when no real history is usable."""
@@ -226,3 +254,12 @@ def build_strategy_context(fundamentals: dict, intelligence: dict, market_contex
 
 def elapsed_ms(started_at: float) -> int:
     return int((time.monotonic() - started_at) * 1000)
+
+
+def apply_stock_language_evidence(evidence: dict, enhancement: dict) -> None:
+    """Merge validated semantic insights into narrative evidence, never numeric inputs."""
+    if enhancement.get("status") != "enhanced":
+        return
+    analysis = enhancement.get("analysis") or {}
+    evidence["conflicts"] = list(dict.fromkeys([*evidence.get("conflicts", []), *analysis.get("conflicts", [])]))[:8]
+    evidence["confirmations"] = list(dict.fromkeys([*evidence.get("confirmations", []), *analysis.get("confirmations", [])]))[:8]
