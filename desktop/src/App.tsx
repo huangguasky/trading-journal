@@ -85,9 +85,12 @@ export default function App() {
   const [page, setPage] = useState<Page>('dashboard');
   const [dashboard, setDashboard] = useState<Dashboard | null>(null);
   const [watchlistSymbol, setWatchlistSymbol] = useState('');
+  const watchlistComposing = useRef(false);
+  const watchlistCompositionEnterHandled = useRef(false);
+  const watchlistCompositionEndedAt = useRef(0);
   const [watchlistItems, setWatchlistItems] = useState<WatchlistItem[]>([]);
   const [watchlistMessage, setWatchlistMessage] = useState('');
-  const [stockSymbol, setStockSymbol] = useState('600519');
+  const [stockSymbol, setStockSymbol] = useState('');
   const [stockReport, setStockReport] = useState<StockReport | null>(null);
   const [market, setMarket] = useState('cn');
   const [marketReport, setMarketReport] = useState<MarketReport | null>(null);
@@ -267,8 +270,11 @@ export default function App() {
 
   async function analyzeStock() {
     if (!engineReady) return;
+    const symbol = stockSymbol.trim();
+    if (!symbol) return;
     await run('stock', async () => {
-      const data = await postJson<AnalyzeResponse<StockReport>>('/analyze/stock', { symbol: stockSymbol, save: true });
+      const data = await postJson<AnalyzeResponse<StockReport>>('/analyze/stock', { symbol, save: true });
+      setStockSymbol('');
       if (data.status === 'exists') setExistingPrompt({ kind: 'stock', report: data.report });
       else {
         setStockReport(data.report);
@@ -352,7 +358,6 @@ export default function App() {
 
   function openStockReport(report: StockReport) {
     setStockReport(report);
-    setStockSymbol(report.symbol);
     setPage('stock');
   }
 
@@ -454,7 +459,31 @@ export default function App() {
                 <input
                   value={watchlistSymbol}
                   onChange={(event) => setWatchlistSymbol(event.target.value)}
-                  onKeyDown={(event) => { if (event.key === 'Enter') { event.preventDefault(); addWatchlistSymbol(); } }}
+                  onCompositionStart={() => {
+                    watchlistComposing.current = true;
+                    watchlistCompositionEnterHandled.current = false;
+                  }}
+                  onCompositionEnd={() => {
+                    watchlistComposing.current = false;
+                    watchlistCompositionEndedAt.current = watchlistCompositionEnterHandled.current ? 0 : performance.now();
+                    watchlistCompositionEnterHandled.current = false;
+                  }}
+                  onKeyDown={(event) => {
+                    if (event.key !== 'Enter') return;
+                    const nativeEvent = event.nativeEvent;
+                    if (watchlistComposing.current || nativeEvent.isComposing || nativeEvent.keyCode === 229) {
+                      watchlistCompositionEnterHandled.current = true;
+                      return;
+                    }
+                    const justCommittedComposition = watchlistCompositionEndedAt.current > 0 && performance.now() - watchlistCompositionEndedAt.current < 120;
+                    if (justCommittedComposition) {
+                      watchlistCompositionEndedAt.current = 0;
+                      event.preventDefault();
+                      return;
+                    }
+                    event.preventDefault();
+                    addWatchlistSymbol();
+                  }}
                   placeholder="例如 600519、HK0700 或 AAPL"
                 />
                 <button className="primary" disabled={!engineReady || isBusy('watchlist-add') || !watchlistSymbol.trim()} onClick={addWatchlistSymbol}><Plus size={16} /> 添加</button>
@@ -487,8 +516,8 @@ export default function App() {
             <label className="symbol-field compact">
               <span>股票代码</span>
               <div className="symbol-input-row">
-                <input value={stockSymbol} onChange={(e) => setStockSymbol(e.target.value)} />
-                <button className="primary" disabled={!engineReady || isBusy('stock')} onClick={analyzeStock}>{isBusy('stock') ? '生成中…' : '分析'}</button>
+                <input value={stockSymbol} onChange={(e) => setStockSymbol(e.target.value)} placeholder="输入一个股票代码" />
+                <button className="primary" disabled={!engineReady || isBusy('stock') || !stockSymbol.trim()} onClick={analyzeStock}>{isBusy('stock') ? '生成中…' : '分析'}</button>
               </div>
               <small>A 股：6 位代码，如 600519；港股：如 HK1810、HK01810 或 700.HK；美股：字母代码，如 AAPL。</small>
             </label>
