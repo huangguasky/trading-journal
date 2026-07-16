@@ -69,7 +69,7 @@ type ChatMessage = {
   role: 'user' | 'assistant';
   content: string;
   status?: string;
-  card?: { agents?: string[]; complexity?: string; symbols?: string[]; tools?: Array<{ name: string; ok: boolean }> };
+  card?: { intent?: string; pending_code?: string; agents?: string[]; complexity?: string; symbols?: string[]; tools?: Array<{ name: string; ok: boolean }> };
 };
 
 const nav: Array<[Page, string, React.ReactNode]> = [
@@ -91,8 +91,11 @@ export default function App() {
   const [stockReport, setStockReport] = useState<StockReport | null>(null);
   const [market, setMarket] = useState('cn');
   const [marketReport, setMarketReport] = useState<MarketReport | null>(null);
-  const [chatText, setChatText] = useState('600519 现在适合追涨吗？');
+  const [chatText, setChatText] = useState('');
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
+  const chatComposing = useRef(false);
+  const chatCompositionEnterHandled = useRef(false);
+  const chatCompositionEndedAt = useRef(0);
   const [busyTasks, setBusyTasks] = useState<Record<string, boolean>>({});
   const activeTasks = useRef(new Set<string>());
   const initialMarketLoaded = useRef(false);
@@ -322,7 +325,7 @@ export default function App() {
     if (!engineReady) return;
     const message = chatText.trim();
     if (!message) return;
-    const history = chatMessages.map(({ role, content }) => ({ role, content }));
+    const history = chatMessages.map(({ role, content, status, card }) => ({ role, content, status, card }));
     setChatMessages((current) => [...current, { role: 'user', content: message }]);
     setChatText('');
     await run('chat', async () => {
@@ -530,7 +533,7 @@ export default function App() {
                 {chatMessages.map((message, index) => (
                   <article key={index} className={`chat-message ${message.role} ${message.status === 'refused' ? 'refused' : ''}`}>
                     <span>{message.role === 'user' ? '你' : '研究助手'}</span>
-                    <p>{message.content}</p>
+                    {message.role === 'assistant' ? <MarkdownContent content={message.content} /> : <p>{message.content}</p>}
                     {message.card?.agents?.length ? <small>参与分析：{formatAgentNames(message.card.agents, '、')}</small> : null}
                   </article>
                 ))}
@@ -540,8 +543,30 @@ export default function App() {
                 <textarea
                   value={chatText}
                   onChange={(event) => setChatText(event.target.value)}
+                  onCompositionStart={() => {
+                    chatComposing.current = true;
+                    chatCompositionEnterHandled.current = false;
+                  }}
+                  onCompositionEnd={() => {
+                    chatComposing.current = false;
+                    chatCompositionEndedAt.current = chatCompositionEnterHandled.current ? 0 : performance.now();
+                    chatCompositionEnterHandled.current = false;
+                  }}
                   onKeyDown={(event) => {
-                    if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); ask(); }
+                    if (event.key !== 'Enter') return;
+                    const nativeEvent = event.nativeEvent;
+                    const justCommittedComposition = chatCompositionEndedAt.current > 0 && performance.now() - chatCompositionEndedAt.current < 120;
+                    const isActiveComposition = chatComposing.current || nativeEvent.isComposing || nativeEvent.keyCode === 229;
+                    if (isActiveComposition) {
+                      chatCompositionEnterHandled.current = true;
+                      return;
+                    }
+                    if (justCommittedComposition) {
+                      chatCompositionEndedAt.current = 0;
+                      event.preventDefault();
+                      return;
+                    }
+                    if (!event.shiftKey) { event.preventDefault(); ask(); }
                   }}
                   placeholder="输入股票代码和问题，Enter 发送，Shift + Enter 换行"
                 />
@@ -710,6 +735,86 @@ function complexityLabel(value: SystemSettings['agent_complexity']) {
 
 function formatAgentNames(agents: string[] | undefined, separator = ' · ') {
   return (agents ?? []).map((name) => name.replace(/\s*Agent$/i, '')).join(separator);
+}
+
+function MarkdownContent({ content }: { content: string }) {
+  const lines = content.replace(/\r\n/g, '\n').split('\n');
+  const blocks: React.ReactNode[] = [];
+  let index = 0;
+
+  while (index < lines.length) {
+    const line = lines[index].trim();
+    if (!line) { index += 1; continue; }
+
+    const heading = /^(#{1,3})\s+(.+)$/.exec(line);
+    if (heading) {
+      const level = heading[1].length;
+      const children = renderMarkdownInline(heading[2], `h-${index}`);
+      blocks.push(level === 1 ? <h2 key={index}>{children}</h2> : level === 2 ? <h3 key={index}>{children}</h3> : <h4 key={index}>{children}</h4>);
+      index += 1;
+      continue;
+    }
+
+    if (line.startsWith('```')) {
+      const code: string[] = [];
+      index += 1;
+      while (index < lines.length && !lines[index].trim().startsWith('```')) code.push(lines[index++]);
+      index += 1;
+      blocks.push(<pre key={`code-${index}`}><code>{code.join('\n')}</code></pre>);
+      continue;
+    }
+
+    if (line.includes('|') && index + 1 < lines.length && /^\s*\|?\s*:?-{3,}/.test(lines[index + 1])) {
+      const headers = splitMarkdownTableRow(line);
+      index += 2;
+      const rows: string[][] = [];
+      while (index < lines.length && lines[index].includes('|') && lines[index].trim()) rows.push(splitMarkdownTableRow(lines[index++]));
+      blocks.push(<div className="markdown-table-wrap" key={`table-${index}`}><table><thead><tr>{headers.map((cell, cellIndex) => <th key={cellIndex}>{renderMarkdownInline(cell, `th-${cellIndex}`)}</th>)}</tr></thead><tbody>{rows.map((row, rowIndex) => <tr key={rowIndex}>{row.map((cell, cellIndex) => <td key={cellIndex}>{renderMarkdownInline(cell, `td-${rowIndex}-${cellIndex}`)}</td>)}</tr>)}</tbody></table></div>);
+      continue;
+    }
+
+    if (/^[-*]\s+/.test(line)) {
+      const items: string[] = [];
+      while (index < lines.length && /^[-*]\s+/.test(lines[index].trim())) items.push(lines[index++].trim().replace(/^[-*]\s+/, ''));
+      blocks.push(<ul key={`ul-${index}`}>{items.map((item, itemIndex) => <li key={itemIndex}>{renderMarkdownInline(item, `ul-${itemIndex}`)}</li>)}</ul>);
+      continue;
+    }
+
+    if (/^\d+\.\s+/.test(line)) {
+      const items: string[] = [];
+      while (index < lines.length && /^\d+\.\s+/.test(lines[index].trim())) items.push(lines[index++].trim().replace(/^\d+\.\s+/, ''));
+      blocks.push(<ol key={`ol-${index}`}>{items.map((item, itemIndex) => <li key={itemIndex}>{renderMarkdownInline(item, `ol-${itemIndex}`)}</li>)}</ol>);
+      continue;
+    }
+
+    if (/^---+$/.test(line)) {
+      blocks.push(<hr key={`hr-${index}`} />);
+      index += 1;
+      continue;
+    }
+
+    const paragraph = [line];
+    index += 1;
+    while (index < lines.length && lines[index].trim() && !/^(#{1,3})\s+|^```|^[-*]\s+|^\d+\.\s+|^---+$/.test(lines[index].trim())) {
+      if (lines[index].includes('|') && index + 1 < lines.length && /^\s*\|?\s*:?-{3,}/.test(lines[index + 1])) break;
+      paragraph.push(lines[index++].trim());
+    }
+    blocks.push(<p key={`p-${index}`}>{renderMarkdownInline(paragraph.join(' '), `p-${index}`)}</p>);
+  }
+
+  return <div className="markdown-content">{blocks}</div>;
+}
+
+function splitMarkdownTableRow(line: string) {
+  return line.trim().replace(/^\||\|$/g, '').split('|').map((cell) => cell.trim());
+}
+
+function renderMarkdownInline(text: string, keyPrefix: string) {
+  return text.split(/(\*\*[^*]+\*\*|`[^`]+`)/g).filter(Boolean).map((part, index) => {
+    if (part.startsWith('**') && part.endsWith('**')) return <strong key={`${keyPrefix}-${index}`}>{part.slice(2, -2)}</strong>;
+    if (part.startsWith('`') && part.endsWith('`')) return <code key={`${keyPrefix}-${index}`}>{part.slice(1, -1)}</code>;
+    return <React.Fragment key={`${keyPrefix}-${index}`}>{part}</React.Fragment>;
+  });
 }
 
 function Kpi(props: { label: string; value: string; tone?: 'blue' | 'amber' | 'violet' }) {

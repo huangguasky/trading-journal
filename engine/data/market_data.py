@@ -31,6 +31,8 @@ class Quote:
     change_pct: float
     currency: str
     source: str
+    as_of: str | None = None
+    is_delayed: bool = True
 
 
 @dataclass
@@ -107,20 +109,33 @@ class MarketData:
         return HistoryBundle([], quality)
 
     def quote(self, symbol_or_code: Symbol | str) -> Quote:
-        """Return the latest quote derived from normalized history."""
-        symbol = symbol_or_code if isinstance(symbol_or_code, Symbol) else normalize_symbol(symbol_or_code)
-        bundle = self.history_bundle(symbol, 260)
-        bars = bundle.bars
-        if len(bars) < 2:
-            raise ValueError(bundle.quality.notes[-1])
-        last = bars[-1]
-        prev = bars[-2]
-        currency = {"cn": "CNY", "hk": "HKD", "us": "USD"}[symbol.market]
-        return Quote(symbol.display, symbol.market, symbol.display, round(last.close, 3), round((last.close / prev.close - 1) * 100, 2), currency, bundle.quality.source)
+        """Return the freshest quote available, falling back to normalized history."""
+        quote, _ = self.quote_with_quality(symbol_or_code)
+        return quote
 
     def quote_with_quality(self, symbol_or_code: Symbol | str) -> tuple[Quote, DataQuality]:
-        """Return the latest quote together with its source-quality metadata."""
+        """Prefer Yahoo chart metadata for the current price, then fall back to daily history."""
         symbol = symbol_or_code if isinstance(symbol_or_code, Symbol) else normalize_symbol(symbol_or_code)
+        from .enrichment import EnrichmentData
+
+        realtime = EnrichmentData(timeout_s=self.timeout_s).realtime_quote(symbol)
+        if realtime.data:
+            data = realtime.data
+            quote = Quote(
+                symbol.display,
+                symbol.market,
+                str(data.get("name") or symbol.display),
+                round(float(data["price"]), 3),
+                round(float(data.get("change_pct") or 0), 2),
+                {"cn": "CNY", "hk": "HKD", "us": "USD"}[symbol.market],
+                str(realtime.quality.get("source") or "yahoo-chart"),
+                str(data.get("as_of") or "") or None,
+                True,
+            )
+            quality = DataQuality(quote.source, "ok", "high", [ProviderAttempt(quote.source, "ok", "取得最新市场价格")], [])
+            self.last_quality[symbol.display] = quality
+            return quote, quality
+
         bundle = self.history_bundle(symbol, 260)
         bars = bundle.bars
         if len(bars) < 2:
@@ -128,7 +143,7 @@ class MarketData:
         last = bars[-1]
         prev = bars[-2]
         currency = {"cn": "CNY", "hk": "HKD", "us": "USD"}[symbol.market]
-        quote = Quote(symbol.display, symbol.market, symbol.display, round(last.close, 3), round((last.close / prev.close - 1) * 100, 2), currency, bundle.quality.source)
+        quote = Quote(symbol.display, symbol.market, symbol.display, round(last.close, 3), round((last.close / prev.close - 1) * 100, 2), currency, bundle.quality.source, last.date, True)
         return quote, bundle.quality
 
     def market_snapshot(self, market: str) -> dict:
@@ -355,10 +370,11 @@ def quality_to_dict(quality: DataQuality) -> dict[str, Any]:
 def combine_quality(items: list[dict[str, Any]]) -> dict[str, Any]:
     """Aggregate asset quality records into a market-level quality summary."""
     statuses = {item.get("status") for item in items}
-    confidences = {item.get("confidence") for item in items}
+    available = sum(item.get("status") in {"ok", "partial"} for item in items)
     return {
         "status": "unavailable" if items and statuses == {"unavailable"} else "partial" if "unavailable" in statuses else "ok",
-        "confidence": "low" if "low" in confidences else "high",
+        "confidence": "high" if items and available == len(items) else "medium" if available else "low",
+        "coverage": {"available": available, "total": len(items)},
         "sources": list(dict.fromkeys(str(item.get("source")) for item in items)),
         "items": items,
     }

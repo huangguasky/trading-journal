@@ -30,7 +30,12 @@ class EnrichmentData:
         try:
             meta = self._yahoo_chart_meta(symbol)
             price = safe_number(meta.get("regularMarketPrice"))
-            previous = safe_number(meta.get("chartPreviousClose") or meta.get("previousClose"))
+            previous = safe_number(
+                meta.get("regularMarketPreviousClose")
+                or meta.get("derivedPreviousClose")
+                or meta.get("previousClose")
+                or meta.get("chartPreviousClose")
+            )
             if not price:
                 raise RuntimeError("实时价格为空")
             stamp = meta.get("regularMarketTime")
@@ -49,7 +54,7 @@ class EnrichmentData:
                 "is_partial_bar": True,
                 "is_stale": False,
             }
-            return EnrichmentBundle(data, quality("yahoo-chart", "ok", "high", "实时行情已取得"))
+            return EnrichmentBundle(data, quality("yahoo-chart", "ok", "high", "最新可用行情已取得"))
         except Exception as exc:
             return EnrichmentBundle({}, quality("yahoo-chart", "unavailable", "low", compact_error(exc)))
 
@@ -141,7 +146,21 @@ class EnrichmentData:
         with urllib.request.urlopen(request, timeout=self.timeout_s) as response:
             payload = json.loads(response.read().decode("utf-8"))
         results = ((payload.get("chart") or {}).get("result") or [])
-        return (results[0].get("meta") or {}) if results else {}
+        if not results:
+            return {}
+        result = results[0]
+        meta = dict(result.get("meta") or {})
+        quote = (((result.get("indicators") or {}).get("quote") or [{}])[0])
+        closes = [safe_number(value) for value in (quote.get("close") or [])]
+        closes = [value for value in closes if value and value > 0]
+        current = safe_number(meta.get("regularMarketPrice"))
+        if closes:
+            last_is_current = bool(current and abs(closes[-1] - current) <= max(0.01, current * 0.002))
+            if last_is_current and len(closes) >= 2:
+                meta["derivedPreviousClose"] = closes[-2]
+            elif not last_is_current:
+                meta["derivedPreviousClose"] = closes[-1]
+        return meta
 
     def chip_distribution(self, symbol: Symbol) -> EnrichmentBundle:
         """Load real A-share chip distribution when AkShare exposes it."""

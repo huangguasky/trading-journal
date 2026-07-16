@@ -432,11 +432,29 @@ textarea {
 .chat-message.user { align-self: flex-end; }
 .chat-message.assistant { align-self: flex-start; }
 .chat-message > span { display: block; margin: 0 0 5px 2px; color: var(--muted); font-size: 12px; }
-.chat-message p { margin: 0; padding: 12px 14px; white-space: pre-wrap; line-height: 1.65; border: 1px solid #dfe8f0; border-radius: 8px; background: #f7fafc; }
-.chat-message.user p { color: white; border-color: transparent; background: #397f9e; }
-.chat-message.refused p { color: #8d4055; border-color: rgba(207, 93, 121, .25); background: rgba(207, 93, 121, .07); }
+.chat-message > p, .chat-message > .markdown-content { margin: 0; padding: 12px 14px; white-space: pre-wrap; line-height: 1.65; border: 1px solid #dfe8f0; border-radius: 8px; background: #f7fafc; }
+.chat-message.user > p { color: white; border-color: transparent; background: #397f9e; }
+.chat-message.refused > .markdown-content { color: #8d4055; border-color: rgba(207, 93, 121, .25); background: rgba(207, 93, 121, .07); }
 .chat-message small { display: block; margin: 6px 2px 0; color: var(--muted); line-height: 1.5; }
-.chat-message.pending p { color: var(--muted); }
+.chat-message.pending > p { color: var(--muted); }
+
+.markdown-content { min-width: 0; overflow-wrap: anywhere; }
+.markdown-content h2, .markdown-content h3, .markdown-content h4 { margin: 0 0 8px; color: #244760; letter-spacing: 0; }
+.markdown-content h2 { font-size: 18px; }
+.markdown-content h3 { font-size: 16px; }
+.markdown-content h4 { font-size: 14px; }
+.markdown-content p { margin: 0 0 10px; }
+.markdown-content p:last-child { margin-bottom: 0; }
+.markdown-content ul, .markdown-content ol { margin: 4px 0 10px; padding-left: 22px; }
+.markdown-content li { margin: 4px 0; }
+.markdown-content hr { margin: 12px 0; border: 0; border-top: 1px solid #dfe8f0; }
+.markdown-content code { color: #315e87; background: #e8f1f7; }
+.markdown-content pre { margin: 8px 0; border-radius: 6px; }
+.markdown-content pre code { color: inherit; background: transparent; padding: 0; }
+.markdown-table-wrap { max-width: 100%; margin: 8px 0 12px; overflow-x: auto; }
+.markdown-content table { width: 100%; border-collapse: collapse; white-space: normal; font-size: 13px; }
+.markdown-content th, .markdown-content td { padding: 8px; text-align: left; vertical-align: top; border: 1px solid #dbe5ee; }
+.markdown-content th { color: #244760; background: #edf4f8; }
 
 .chat-composer {
   display: grid;
@@ -576,6 +594,7 @@ textarea {
 .confirm-dialog > strong { font-size: 20px; }
 .confirm-dialog > p { color: var(--muted); line-height: 1.7; }
 .confirm-dialog > div { display: flex; flex-wrap: wrap; gap: 10px; }
+.confirm-dialog > div > button { height: 44px; min-height: 44px; margin: 0; padding: 10px 16px; align-items: center; justify-content: center; }
 
 .score {
   width: 118px;

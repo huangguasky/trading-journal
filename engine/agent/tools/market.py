@@ -6,6 +6,7 @@ from dataclasses import asdict
 
 from engine.analysis.market_pipeline import MarketPipeline
 from engine.data.market_data import MarketData
+from engine.data.enrichment import EnrichmentData
 from engine.data.news_data import NewsData
 from engine.data.normalize import normalize_symbol
 from engine.indicators import compute_indicators
@@ -20,6 +21,7 @@ class MarketTools:
         self.db = db
         self.market_data = market_data
         self.news_data = news_data
+        self.enrichment_data = EnrichmentData(timeout_s=market_data.timeout_s)
 
     def quote(self, args: dict) -> dict:
         """Fetch a normalized quote for the requested symbol."""
@@ -35,6 +37,15 @@ class MarketTools:
         """Compute technical indicators from the requested symbol's history."""
         bars = self.market_data.history(args["symbol"])
         return compute_indicators(bars)
+
+    def fundamentals(self, args: dict) -> dict:
+        """Fetch normalized fundamental evidence for the requested symbol."""
+        symbol = normalize_symbol(args["symbol"])
+        bundle = self.enrichment_data.fundamentals(symbol)
+        if not bundle.data:
+            notes = bundle.quality.get("notes") or []
+            raise ValueError(str(notes[0]) if notes else "基本面数据不可用")
+        return {**bundle.data, "data_quality": bundle.quality}
 
     def news(self, args: dict) -> dict:
         """Fetch stock or market news according to the supplied arguments."""

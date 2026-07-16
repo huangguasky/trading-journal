@@ -1,5 +1,6 @@
 from engine.analysis.market_pipeline import build_market_dimensions, classify_market_news
-from engine.data.news_data import deduplicate_news, market_news_queries
+from engine.data.market_data import combine_quality
+from engine.data.news_data import NewsData, deduplicate_news, market_news_queries
 
 
 def test_market_news_queries_cover_distinct_review_topics():
@@ -36,3 +37,23 @@ def test_market_news_classification_uses_topic_and_content():
     assert intelligence["metrics"]["news_count"] == 2
     assert intelligence["metrics"]["macro_policy_count"] == 1
     assert intelligence["metrics"]["sector_theme_count"] == 1
+
+
+def test_market_quality_is_not_low_when_some_representative_assets_succeed():
+    quality = combine_quality([
+        {"source": "yahoo", "status": "ok", "confidence": "high"},
+        {"source": "none", "status": "unavailable", "confidence": "low"},
+    ])
+    assert quality["status"] == "partial"
+    assert quality["confidence"] == "medium"
+    assert quality["coverage"] == {"available": 1, "total": 2}
+
+
+def test_market_news_uses_public_rss_before_marking_unavailable(monkeypatch):
+    news = NewsData()
+    monkeypatch.setattr(news, "_google_market_news_rss", lambda market: [{
+        "title": "央行发布最新政策信号", "source": "fixture", "topic": "macro_policy"
+    }])
+    bundle = news.market_news_bundle("cn")
+    assert bundle.quality["status"] == "ok"
+    assert bundle.quality["source"] == "google-news-rss"

@@ -25,9 +25,8 @@ class ToolRegistry:
         self.market_data = market_data or MarketData()
         self.news_data = news_data or NewsData()
         self.market = MarketTools(db, self.market_data, self.news_data)
-        self.reports = ReportTools(db, self.market_data, self.news_data)
+        self.reports = ReportTools(db, self.market_data)
         self.tools = self._build()
-        self.non_retriable_cache: set[str] = set()
 
     def allowed(self, names: list[str] | None = None) -> list[Tool]:
         """Return all tools or the subset whose names are explicitly allowed."""
@@ -42,31 +41,32 @@ class ToolRegistry:
         allowed_tools: list[str] | None = None,
     ) -> dict:
         """Validate and execute one tool call, returning a JSON-compatible result."""
-        if allowed_tools and name not in allowed_tools:
-            return {"error": "tool_not_allowed", "tool": name}
+        if allowed_tools is not None and name not in allowed_tools:
+            return {"ok": False, "error": "tool_not_allowed", "tool": name}
         tool = self.tools.get(name)
         if not tool:
-            return {"error": "tool_not_found", "tool": name}
-
-        cache_key = f"{name}:{arguments}"
-        if cache_key in self.non_retriable_cache:
-            return {"error": "cached_non_retriable_error", "tool": name}
+            return {"ok": False, "error": "tool_not_found", "tool": name}
 
         started = time.time()
+        pool = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+        future = pool.submit(tool.handler, arguments)
         try:
             # A dedicated worker gives each blocking provider call a hard timeout
             # without making domain handlers responsible for execution policy.
-            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
-                future = pool.submit(tool.handler, arguments)
-                result = future.result(timeout=tool.timeout_s)
+            result = future.result(timeout=tool.timeout_s)
+            pool.shutdown(wait=False)
             return {
                 "ok": True,
                 "tool": name,
                 "elapsed_ms": round((time.time() - started) * 1000),
                 "result": result,
             }
+        except concurrent.futures.TimeoutError:
+            future.cancel()
+            pool.shutdown(wait=False, cancel_futures=True)
+            return {"ok": False, "tool": name, "error": f"工具执行超过 {tool.timeout_s:g} 秒", "timeout": True}
         except ValueError as exc:
-            self.non_retriable_cache.add(cache_key)
+            pool.shutdown(wait=False, cancel_futures=True)
             return {
                 "ok": False,
                 "tool": name,
@@ -74,6 +74,7 @@ class ToolRegistry:
                 "non_retriable": True,
             }
         except Exception as exc:
+            pool.shutdown(wait=False, cancel_futures=True)
             return {"ok": False, "tool": name, "error": str(exc)}
 
     def _build(self) -> dict[str, Tool]:
@@ -99,6 +100,13 @@ class ToolRegistry:
                 "Compute technical indicators for a stock symbol.",
                 {"symbol": "string"},
                 self.market.indicators,
+                timeout,
+            ),
+            "get_fundamentals": Tool(
+                "get_fundamentals",
+                "Get valuation, growth, quality, earnings, and industry evidence.",
+                {"symbol": "string"},
+                self.market.fundamentals,
                 timeout,
             ),
             "search_news": Tool(
@@ -127,13 +135,6 @@ class ToolRegistry:
                 "Get market review context.",
                 {"market": "cn|hk|us"},
                 self.market.market_context,
-                timeout,
-            ),
-            "run_stock_report": Tool(
-                "run_stock_report",
-                "Run the fixed stock pipeline for a symbol.",
-                {"symbol": "string"},
-                self.reports.run_stock_report,
                 timeout,
             ),
         }

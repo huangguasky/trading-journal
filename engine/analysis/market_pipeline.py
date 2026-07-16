@@ -190,9 +190,9 @@ def market_risks(score: float, snapshot: dict, news_quality: dict) -> list[str]:
         risks.append("下跌家数多于上涨家数，指数表现可能掩盖个股压力。")
     if breadth.get("limit_down") and breadth.get("limit_down", 0) > breadth.get("limit_up", 0) * 0.4:
         risks.append("跌停数量相对偏高，短线情绪有扩散风险。")
-    if snapshot.get("data_quality", {}).get("confidence") == "low":
+    if snapshot.get("data_quality", {}).get("status") == "unavailable":
         risks.append("市场快照存在数据降级，本次复盘应降低置信度。")
-    if news_quality.get("confidence") == "low":
+    if news_quality.get("status") == "unavailable":
         risks.append("宏观新闻源降级，需在交易前补充核对重大事件。")
     if not risks:
         risks.append("指数强势后仍需警惕高开回落和板块轮动过快。")

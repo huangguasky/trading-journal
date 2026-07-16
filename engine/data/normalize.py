@@ -40,6 +40,12 @@ def normalize_symbol(value: str) -> Symbol:
         digits = normalize_hk_digits(hk_suffix.group(1))
         return Symbol(raw, "hk", f"HK{digits}", f"{digits}.HK")
 
+    # Bare codes shorter than six digits are conventionally Hong Kong tickers
+    # in this application; six-digit numeric codes remain CN securities.
+    if re.fullmatch(r"\d{1,5}", text):
+        digits = normalize_hk_digits(text)
+        return Symbol(raw, "hk", f"HK{digits}", f"{digits}.HK")
+
     match = re.fullmatch(r"(SH|SZ|BJ)?\.?(\d{6})(\.(SH|SZ|BJ|SS))?", text)
     if match:
         digits = match.group(2)

@@ -5,6 +5,7 @@ import urllib.parse
 import urllib.request
 import urllib.error
 import xml.etree.ElementTree as ET
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, asdict
 from typing import Any
 
@@ -105,7 +106,49 @@ class NewsData:
                 attempts.append({"provider": provider, "status": "empty", "message": "返回为空或格式不正确"})
             except Exception as exc:
                 attempts.append({"provider": provider, "status": "failed", "message": str(exc)[:160]})
+        try:
+            items = self._google_market_news_rss(market)
+            if items:
+                attempts.append({"provider": "google-news-rss", "status": "ok", "message": f"取得 {len(items)} 条新闻"})
+                return NewsBundle(items, quality("google-news-rss", "ok", "medium", attempts, ["使用公开 RSS 补充市场、宏观与流动性事件。"] ))
+            attempts.append({"provider": "google-news-rss", "status": "empty", "message": "返回为空或格式不正确"})
+        except Exception as exc:
+            attempts.append({"provider": "google-news-rss", "status": "failed", "message": str(exc)[:160]})
         return NewsBundle([], quality("none", "unavailable", "low", attempts, ["没有可用的真实新闻源，未生成模板资讯；请在设置页配置新闻源。"] ))
+
+    def _google_market_news_rss(self, market: str) -> list[dict[str, Any]]:
+        """Load credential-free market, policy, and liquidity news from Google RSS."""
+        collected: list[dict[str, Any]] = []
+
+        def load_topic(topic: str, query: str) -> list[dict[str, Any]]:
+            params = urllib.parse.urlencode({"q": query, "hl": "zh-CN", "gl": "HK", "ceid": "HK:zh-Hans"})
+            request = urllib.request.Request(
+                f"https://news.google.com/rss/search?{params}",
+                headers={"User-Agent": "Mozilla/5.0 (TradingJournal/0.2)"},
+            )
+            with urllib.request.urlopen(request, timeout=self.timeout_s) as response:
+                root = ET.fromstring(response.read())
+            output = []
+            for item in root.findall("./channel/item")[:4]:
+                source = item.find("source")
+                output.append({
+                    "title": item.findtext("title"),
+                    "source": source.text if source is not None else "google-news-rss",
+                    "date": str(item.findtext("pubDate") or today_cn())[:16],
+                    "url": item.findtext("link"),
+                    "topic": topic,
+                })
+            return output
+
+        queries = market_news_queries(market)
+        with ThreadPoolExecutor(max_workers=len(queries)) as pool:
+            futures = [pool.submit(load_topic, topic, query) for topic, query, _language in queries]
+            for future in as_completed(futures):
+                try:
+                    collected.extend(future.result())
+                except Exception:
+                    continue
+        return deduplicate_news([item for item in collected if item.get("title")])[:8]
 
     def _newsapi(self, query: str, language: str = "zh") -> list[dict[str, Any]]:
         """Request and normalize recent articles from NewsAPI."""

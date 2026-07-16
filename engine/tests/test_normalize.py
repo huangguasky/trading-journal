@@ -27,6 +27,11 @@ def test_normalize_hk_equivalent_formats():
         assert (symbol.market, symbol.display, symbol.provider_code) == expected_short
 
 
+def test_normalize_bare_hk_code():
+    symbol = normalize_symbol("1810")
+    assert (symbol.market, symbol.display, symbol.provider_code) == ("hk", "HK1810", "1810.HK")
+
+
 def test_normalize_us():
     symbol = normalize_symbol("aapl")
     assert symbol.market == "us"

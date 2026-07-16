@@ -43,6 +43,44 @@ def test_realtime_quote_uses_yahoo_chart_metadata(monkeypatch):
     assert result.quality["status"] == "ok"
 
 
+def test_realtime_quote_prefers_derived_previous_day_over_chart_window_close(monkeypatch):
+    enrichment = EnrichmentData()
+    monkeypatch.setattr(enrichment, "_yahoo_chart_meta", lambda symbol: {
+        "regularMarketPrice": 9.04,
+        "derivedPreviousClose": 8.37,
+        "chartPreviousClose": 9.26,
+    })
+
+    result = enrichment.realtime_quote(normalize_symbol("HK00917"))
+
+    assert result.data["previous_close"] == 8.37
+    assert result.data["change_pct"] == 8.0
+
+
+def test_yahoo_chart_meta_derives_previous_close_from_daily_bars(monkeypatch):
+    enrichment = EnrichmentData()
+    payload = {
+        "chart": {"result": [{
+            "meta": {"regularMarketPrice": 9.04, "chartPreviousClose": 9.26},
+            "indicators": {"quote": [{"close": [8.30, 8.29, 8.37, 9.04]}]},
+        }]},
+    }
+
+    class Response:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return None
+
+        def read(self):
+            return __import__("json").dumps(payload).encode()
+
+    monkeypatch.setattr("urllib.request.urlopen", lambda request, timeout: Response())
+    meta = enrichment._yahoo_chart_meta(normalize_symbol("HK00917"))
+    assert meta["derivedPreviousClose"] == 8.37
+
+
 def test_hk_fundamentals_use_dedicated_akshare_sources(monkeypatch):
     import akshare as ak
     import pandas as pd
