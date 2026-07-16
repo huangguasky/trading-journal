@@ -26,8 +26,8 @@
   "bundle": {
     "active": true,
     "targets": "all",
-    "externalBin": [
-      "binaries/engine-sidecar"
+    "resources": [
+      "binaries/engine-sidecar-runtime"
     ],
     "icon": [
       "icons/icon.png",

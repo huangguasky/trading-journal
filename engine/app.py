@@ -139,6 +139,8 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("X-Trading-Journal-Engine", ENGINE_API_VERSION)
         self.send_header("Access-Control-Allow-Headers", "Content-Type")
         self.send_header("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS")
+        self.send_header("Access-Control-Expose-Headers", "X-Trading-Journal-Engine")
+        self.send_header("Access-Control-Allow-Private-Network", "true")
         self.end_headers()
         self.wfile.write(raw)
 

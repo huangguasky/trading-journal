@@ -1,7 +1,8 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
+import { invoke } from '@tauri-apps/api/core';
 import { Activity, ArrowLeft, BarChart3, Bot, ClipboardList, Database, LineChart, Plus, RefreshCw, Send, Settings, ShieldAlert, Trash2, X } from 'lucide-react';
-import { deleteJson, getJson, postJson, MarketReport, StockReport } from './api';
+import { deleteJson, getJson, postJson, setEngineBase, MarketReport, StockReport } from './api';
 import './style.css';
 
 type Page = 'dashboard' | 'watchlist' | 'stock' | 'market' | 'chat' | 'settings';
@@ -133,7 +134,18 @@ export default function App() {
     setEngineReady(false);
     setEngineStatus('checking');
     try {
-      await waitForEngine();
+      if (!import.meta.env.DEV) {
+        setEngineBase(await invoke<string>('engine_endpoint'));
+      }
+      try {
+        await waitForEngine(240);
+      } catch {
+        if (!import.meta.env.DEV) {
+          await invoke('restart_engine');
+          setEngineBase(await invoke<string>('engine_endpoint'));
+        }
+        await waitForEngine(240);
+      }
       const results = await Promise.all([refreshDashboard(), loadSettings(), loadWatchlist()]);
       if (results.some((ready) => !ready)) throw new Error('引擎初始化数据尚未加载完成。');
       setEngineReady(true);
@@ -142,18 +154,31 @@ export default function App() {
     } catch (error) {
       setEngineReady(false);
       setEngineStatus('offline');
-      setEngineProblem(error instanceof Error ? error.message : '本地 Python 引擎未连接。');
+      let message = error instanceof Error ? error.message : '本地 Python 引擎未连接。';
+      if (!import.meta.env.DEV) {
+        try {
+          const detail = await invoke<string | null>('engine_problem');
+          if (detail) message = `本地引擎启动失败：${detail}`;
+        } catch {
+          // Keep the network error when the desktop bridge cannot provide diagnostics.
+        }
+      }
+      setEngineProblem(message);
     }
   }
 
-  async function waitForEngine() {
+  async function waitForEngine(maxAttempts: number) {
     let lastError: unknown;
-    for (let attempt = 0; attempt < 60; attempt += 1) {
+    for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
       try {
         const health = await getJson<{ ok: boolean }>('/health');
         if (health.ok) return;
       } catch (error) {
         lastError = error;
+        if (!import.meta.env.DEV && attempt % 4 === 3) {
+          const detail = await invoke<string | null>('engine_problem');
+          if (detail) throw new Error(`本地引擎启动失败：${detail}`);
+        }
       }
       await new Promise((resolve) => window.setTimeout(resolve, 500));
     }

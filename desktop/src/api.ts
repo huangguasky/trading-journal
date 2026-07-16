@@ -1,5 +1,9 @@
-const BASE = import.meta.env.DEV ? '/engine' : 'http://127.0.0.1:8765';
+let base = import.meta.env.DEV ? '/engine' : 'http://127.0.0.1:8765';
 const EXPECTED_ENGINE_API = '4';
+
+export function setEngineBase(value: string): void {
+  base = value.replace(/\/$/, '');
+}
 
 function validateEngine(res: Response): void {
   const version = res.headers.get('X-Trading-Journal-Engine');
@@ -9,14 +13,14 @@ function validateEngine(res: Response): void {
 }
 
 export async function getJson<T>(path: string): Promise<T> {
-  const res = await fetch(`${BASE}${path}`);
+  const res = await fetch(`${base}${path}`);
   validateEngine(res);
   if (!res.ok) throw new Error(await res.text());
   return res.json();
 }
 
 export async function postJson<T>(path: string, body: unknown): Promise<T> {
-  const res = await fetch(`${BASE}${path}`, {
+  const res = await fetch(`${base}${path}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body)
@@ -27,7 +31,7 @@ export async function postJson<T>(path: string, body: unknown): Promise<T> {
 }
 
 export async function deleteJson<T>(path: string): Promise<T> {
-  const res = await fetch(`${BASE}${path}`, { method: 'DELETE' });
+  const res = await fetch(`${base}${path}`, { method: 'DELETE' });
   validateEngine(res);
   if (!res.ok) throw new Error(await res.text());
   return res.json();

@@ -1,2 +1,5 @@
 engine-sidecar-*
+!engine-sidecar-runtime/
+engine-sidecar-runtime/*
+!engine-sidecar-runtime/.development-placeholder
 !.gitignore

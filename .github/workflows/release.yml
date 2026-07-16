@@ -20,6 +20,8 @@ jobs:
             os: windows-latest
           - name: macOS x64
             os: macos-15-intel
+          - name: macOS Apple Silicon
+            os: macos-15
     runs-on: ${{ matrix.os }}
 
     steps:
@@ -50,6 +52,9 @@ jobs:
 
       - name: Build standalone Python sidecar
         run: python tools/build_sidecar.py
+
+      - name: Smoke test standalone Python sidecar
+        run: python tools/smoke_test_sidecar.py
 
       - name: Build and publish Tauri bundles
         uses: tauri-apps/tauri-action@v1
