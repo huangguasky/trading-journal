@@ -243,4 +243,32 @@ npm install
 npm run tauri:dev
 ```
 
+## Standalone releases
+
+Release builds bundle the Python engine as a Tauri sidecar, so users do not
+need Python or Conda. Application data and credentials are stored in the
+operating system's per-user application data directory.
+
+To publish installers for Windows and macOS:
+
+1. Update the version in `desktop/src-tauri/tauri.conf.json`,
+   `desktop/src-tauri/Cargo.toml`, and `desktop/package.json`.
+2. Push a matching tag, for example `v0.2.0`.
+3. The `Release desktop app` GitHub Actions workflow builds the Python sidecar
+   on each operating system and uploads the Tauri installers to a GitHub
+   Release.
+
+The workflow can also be started manually. Manual runs build downloadable
+workflow artifacts without creating a GitHub Release.
+
+For a local release build, install PyInstaller in the `tj` environment first,
+then run:
+
+```powershell
+conda run -n tj python -m pip install "pyinstaller>=6.11,<7"
+conda run -n tj python tools/build_sidecar.py
+cd desktop
+npm run tauri:build
+```
+
 All LLM, market-data and news credentials are managed only on the desktop Settings page. Environment variables are not read. Providers are tried in capability order and validated by their real response; when every source fails, the report lists missing sources and remediation instead of falling back to sample data.

@@ -26,7 +26,11 @@
   "bundle": {
     "active": true,
     "targets": "all",
+    "externalBin": [
+      "binaries/engine-sidecar"
+    ],
     "icon": [
+      "icons/icon.png",
       "icons/icon.ico"
     ]
   }

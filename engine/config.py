@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import os
 from pathlib import Path
 
 
 ROOT_DIR = Path(__file__).resolve().parents[1]
-DATA_DIR = ROOT_DIR / "data"
+DATA_DIR = Path(os.environ.get("TJ_DATA_DIR", ROOT_DIR / "data")).expanduser().resolve()
+ENGINE_PORT = int(os.environ.get("TJ_PORT", "8765"))
 DB_PATH = DATA_DIR / "trading_journal.sqlite3"
 
 
@@ -13,7 +15,7 @@ DB_PATH = DATA_DIR / "trading_journal.sqlite3"
 class Settings:
     """Non-secret process settings; provider configuration lives in SQLite."""
     host: str = "127.0.0.1"
-    port: int = 8765
+    port: int = ENGINE_PORT
     db_path: Path = DB_PATH
     data_dir: Path = DATA_DIR
     llm_model: str = "gpt-4o-mini"

@@ -4,6 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "predev": "node scripts/prepare-dev-sidecar.mjs",
     "dev": "vite --host 127.0.0.1",
     "build": "tsc && vite build",
     "tauri:dev": "tauri dev",
@@ -24,4 +25,3 @@
     "@types/react-dom": "^18.3.0"
   }
 }
-
